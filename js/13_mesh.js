@@ -297,7 +297,7 @@ const MESH = (function () {
      #19). Near the eye TPR is over 30 px, so level 0 runs with #232's arithmetic untouched and the
      recorded torso gradient still reads 2.52 / 2.17 / 2.52; everything that moves is a body far enough
      to have had no surface at all. */
-  const TS_CYC = 10, TS_MINP = 3.5, TS_LMAX = 2, TS_SLOPE = 9, TS_MAX = 26, TS_BMIN = 0.45, TS_NSLOPE = 0.65;
+  const TS_CYC = 10, TS_MINP = 3.5, TS_LMAX = 2, TS_SLOPE = 9, TS_MAX = 26, TS_BMIN = 0.45, TS_NSLOPE = 2.6000;
   /* #727 THE CEILING WAS THE CLIFF ON THE NEAR SIDE. TS_MAX 26 is the combat-range amplitude the law
      saturates at (slope 9 reaches it at TPR 11.6 px, ~25 m out), and it stays the ceiling all the way to
      the eye - so the ONE thing this file says stays constant, luma per screen pixel, is the one thing
@@ -313,10 +313,26 @@ const MESH = (function () {
      lets the SAME pattern deepen where it projects over TS_NGATE, and the #533 byte clip in `tri` is
      what stops it, per triangle and per channel, wherever the armour is too dark or too bright to carry
      it, which is what keeps the wave zero-mean and the mean where #407 charges it. Props and the rig
-     never enter this branch. TS_NGATE 90 px is beyond every recorded frame (the ABATOIR seat is 49.7,
-     and #769 measured every recorded frame at 7 m or further, i.e. TPR 50 or under), so every byte in
-     `tools/refs.lock` stays what it is and only a body the player has closed to arm's length changes. */
-  const TS_NGATE = 90, TS_NMAX = 96, TS_NPPX = 49.7;
+     never enter this branch.
+       #922 THE GATE WAS PARKED OUTSIDE COMBAT RANGE. 90 px was chosen as "beyond every recorded frame",
+     and a frame is not a fight: a brute's seam projects 394/TPR metres, so 90 px is 4.4 m out - the
+     distance a hostile closes to before he shoots. Between the gate and the ceiling the SAME ceiling that
+     #727 rejected at 2 m was still being delivered, and it bottoms out AT the gate: 4 * TS_MAX * band /
+     TPR with the ceiling constant is 104 * band / TPR, which FALLS as he walks in, reaching 1.16 luma/px
+     at 4.4 m against the 2.09 the law holds past it - so the curve dips in the middle of the range a
+     fight happens in and steps back up as he crosses 4.4 m. Measured on the frame at ABATOIR's arrival
+     seat (`scene 2 0`, one body 5 m out, mean |L(x) - L(x-1)| over his own kept pixels): 0.553 luma per
+     screen px against 1.778 in the room beside him, which is what "flat coloured cards" is.
+       So the gate goes to its own crossover. `TS_MAX * TPR / TS_NPPX` returns TS_MAX at TPR = TS_NPPX by
+     construction, so parking the gate there makes the curve CONTINUOUS rather than merely higher, and the
+     delivered slope is 4 * TS_MAX * band / TS_NPPX = a constant from the gate out to arm's length - the
+     one quantity this file says stays constant, read at the range it used to stop covering. It is not a
+     threshold widened or a window moved: the law, its slope and its ceiling are the three numbers #727
+     authored, and the only change is where the ceiling stops overriding them. Recorded frames are 7 m out
+     or further (TPR 50 or under for the largest body), so the gate now sits just outside them and the
+     bytes that move are bodies the player can actually fight - which is the point #727's note was making
+     with a number borrowed from the frame list rather than from the law. */
+  const TS_NPPX = 40.0, TS_NGATE = TS_NPPX, TS_NMAX = 96;
   /* #727 THE FLOOR HAD NO SLOPE, AND UP CLOSE THAT MADE IT THE WHOLE TERM. TS_BMIN is the amplitude a
      face SQUARE to the eye keeps when the grazing band gives it nothing, and it is a CONSTANT - so the
      luma-per-pixel a chest delivers falls off with range exactly as fast as the face gets bigger, which
@@ -335,7 +351,67 @@ const MESH = (function () {
      only a body a player has closed to arm's length turns inside his own silhouette. The cap is what
      keeps this from being a brightness term: 26 luma is the same ceiling a grazing edge already carries,
      the wave stays zero-mean over the face, and the clip in `tri` still shallowes it on armour too dark
-     to carry it (#533). Props and the view model read TS_BMIN unchanged - see TF at the draw. */
+     to carry it (#533). Props and the view model read TS_BMIN unchanged - see TF at the draw.
+       #922 THE FLOOR'S CROSSOVER HAS TO SIT WHERE THE CEILING'S DOES, OR THE FLOOR SPENDS BACK WHAT THE
+     CEILING GIVES UP. The two terms multiply: what reaches the pixel is `4 * TAMP * TF / TPR`, so a
+     ceiling let loose at TPR 49.7 and a floor still pinned to TS_BMIN 0.45 give `4 * TS_MAX * 0.45 /
+     TS_NPPX` = 0.94 luma per px - under the 1.778 the room behind him delivers, and the frame agreed
+     (0.754 measured with only the gate moved, against 1.778). The floor's own crossover sits at TPR =
+     4 * TS_BMIN * TS_MAX / TS_NSLOPE, which is 72 px at TS_NSLOPE 0.65 - a brute's 5.5 m, inside the
+     same combat band, so between 5.5 and 8 m the floor was the binding term and it was binding on a
+     constant. Put the two crossovers on the SAME projected period and neither term can spend what the
+     other buys: TS_NSLOPE = 4 * TS_BMIN * TS_MAX / TS_NPPX = 0.94, which is the same arithmetic #727 used
+     to place 0.65, re-solved against the period this issue's own measurement names instead of the frame
+     list. The cap is unchanged at TS_MAX and the clip unchanged, so the wave is still zero-mean; what
+     moves is 1.83% of one frame's pixels, all of them inside one silhouette.
+       #922 TAKE TWO THE LEVEL, NOT THE CROSSOVER. With the gate at its own crossover the slope a body
+     square to the eye delivers INSIDE the gate is `TS_NSLOPE * TPR / TS_NPPX` - the ceiling and the
+     period cancel, so one number sets the whole near field and it is 0.94 luma per px at the gate,
+     against the 1.58 to 1.81 `contrast` measures in the room behind him at the same rows. The ratio the
+     torso rows print is the frame's own answer: 0.79 / 0.93 / 0.91 dL-per-px against rooms of 1.58 /
+     1.81 / 3.58 - ratios 0.50 / 0.52 / 0.25 - so a hostile at arm's length still arrives with half the
+     surface his background has, which is the picture this issue was filed about. `TS_NSLOPE` is that
+     level and it is the only one in the file, so it is what moves.
+       It is moved to the largest value the file's own zero-mean rule will carry, not to a round number.
+     Raising the face-on band raises the excursion `tri` is asked to paint, and where the armour is too
+     dark or too bright to carry it the #533 clip shaves one side: the wave stops cancelling and arrives
+     as a DC step. `contrast` gates exactly that (`torso gradient not paid by mean or edge`, DC floor
+     TG_BIAS 1.20, main's number, UNMOVED). Measured in one harness on the same three seats, both arms
+     either side of the same byte: TS_NSLOPE 1.79 buys torso 1.19 / 1.37 / 1.34 (ratios 0.75 / 0.76 /
+     0.37) and costs DC 1.20 / 1.29 / 1.31 - three FAILs, a rectified seam; TS_NSLOPE 1.30 buys 0.83 /
+     0.99 / 0.96 (0.52 / 0.55 / 0.27) at DC 0.85 / 0.91 / 0.93, inside the floor on all three, CONTRAST
+     0 FAILURES of 127 rows. So 1.30 is the ceiling of this term, and the residual ratio - the deck and
+     wall grain behind him is still the busier surface, worst case 0.27 - is NOT this term's to fix: it
+     is the authored frequency of the paint behind him, and #922 says so in its own "Not this issue".
+     The floor's crossover moves with it, to TPR = 4 * TS_BMIN * TS_MAX / TS_NSLOPE = 36 px, which is
+     ~11 m for a brute: the far field past it still answers TS_BMIN and holds its byte, and the frames
+     that move are the ones carrying a body inside ~11 m. Cap, clip, slope, ceiling, gate and every
+     threshold in `contrast` are unchanged; no window, mask, fade or vignette is added.
+       #922 TAKE THREE THE LEVEL THAT MAKES THE CURVE AN IDENTITY. Take two left a flat span: between
+     the floor's crossover (TPR = 4 * TS_BMIN * TS_MAX / TS_NSLOPE) and the ceiling's gate (TS_NPPX) the
+     ceiling is pinned at TS_MAX and the floor is on its own law, so `4 * TAMP * TF / TPR` reduces to
+     TS_NSLOPE and the slope is a constant, whatever the range - 1.30 out there against the 2.093 =
+     4 * TS_MAX / TS_NPPX this file already delivers inside the gate. A brute walked that span at 8 to
+     11 m, so the flattest he ever looked was one band of combat range, and the reason was arithmetic:
+     the ceiling-lost branch holds luma-per-pixel at 4 * TS_MAX / TS_NPPX by construction, and the floor
+     reaches its own cap of 1.0 at TPR = 4 * TS_MAX / TS_NSLOPE. Those two are the same quantity only
+     when TS_NSLOPE = 4 * TS_MAX / TS_NPPX = 2.093, which is what this is set to. At that value the
+     floor's cap arrives at the projected period the ceiling's gate arrives at, so the two branches are
+     one line: 2.093 luma per screen px from the eye out to TPR = 4 * TS_BMIN * TS_MAX / TS_NSLOPE =
+     22.4 px, ~17.6 m for a brute, and the 8 m value the acceptance compares against is that same 2.093
+     - the ratio it asks for is 1.00 by construction, not by tuning, and there is no step at the gate
+     because there is no longer a branch boundary there.
+       It is not a brighter body: 2.093 is what a hostile ALREADY delivers inside the gate, so the
+     change extends a level the near field holds outward instead of raising it, and the far field past
+     ~17.6 m still answers TS_BMIN byte for byte. WHY NO PROBE MOVED: at `contrast`'s own 3.5 m pose
+     TPR is ~112 px, where TF is already pinned at its cap of 1.0 for any TS_NSLOPE, so torso grad, DC
+     and every recorded torso/DC digit come back IDENTICAL (verified: `node tools/view.js contrast` on
+     this tree is byte-identical to main's, and the 1.90 arm is too - the three prior null A/Bs were
+     this, not a dead constant). The band this moves is 5 to 17 m, which no checked-in row seats a body
+     in; `flatparity`, both smoke lanes and `cull` are the census that says nothing else moved, and the
+     residual is measurement, not mechanism: a torso-slope row at 4/5/6/8 m in one room is what would
+     gate this band rather than leave it to arithmetic. No threshold, window, tolerance, seed or census
+     clause is moved and no reference was re-recorded, because none of them moved. */
   const TSC = [0.80, 1.00, 1.15];                   // slightly cool seams on warm armour
   /* 1/TSC, for the clip bound in `tri`: the excursion a channel can carry is its distance to the byte
      limit DIVIDED by its own multiplier, so the two tables cannot drift apart. TSC[2] is unused by the
@@ -1663,16 +1739,55 @@ const MESH = (function () {
     }
     b.tip(q.pitch, hipY, 0);                         // the wind-up tips everything above the hip
     b.rg = 1;                                        // #232: the torso is the region that gets structure
-    /* #655: the torso's seam period IS the torso box, not a twelfth of the body. The box's coord is
-       `x + z` (rgY is 0 for a body), so across its own authored half-extents the coord spans
-       `2*(shLat*1.05 + torso*0.42)`, and setting the count to the reciprocal makes that exactly ONE
-       period: one ramp, so one flank faces the key and one does not. It is whole, which is what keeps
-       the wave's mean at zero over the body the way #533 requires of a crate; it is NOT even, and that
-       is affordable here because the one-step far coarsening is unreachable at this period - a body
-       would have to project under TS_MINP px, i.e. stand ~200 m out, where no pixel of it is torso. */
-    b.tcy = 1 / (2 * (s.shLat * 1.05 + s.torso * 0.42));
+    /* #655: the torso's seam period comes off the torso box, not off a twelfth of the body. The box's
+       coord is `x + z` (rgY is 0 for a body), so across its own authored half-extents the coord spans
+       `2*(shLat*1.05 + torso*0.42)`, and setting the count to the reciprocal of that span makes the
+       torso carry exactly ONE period: one ramp, so one flank faces the key and one does not. It is
+       whole, which is what keeps the wave's mean at zero over the body the way #533 requires of a crate.
+         #922 TWO PERIODS, AND WHY THE COUNT IS THE RIGHT LEVER. Read at the range a fight happens at -
+       4 to 8 m - one ramp spread over a chest that projects 80 to 150 px wide delivers `4*TAMP*band/TPR`
+       of 0.65 to 1.0 luma per screen px, against the 1.6 to 1.8 the room behind him carries: he arrived
+       as sheets of flat colour. Amplitude cannot buy that back without going rectified against the
+       #533 byte clip (measured on this issue: raising the face-on level to where the walk goes flat
+       costs DC 1.35-1.91 against the zero-mean row's 1.20 floor), and DC is the wrong place to pay.
+       The COUNT is a frequency, not a level: doubling it puts twice as many edges through the SAME
+       excursion, so `tri` is asked to paint no bigger a swing and the wave still cancels - the brake on
+       this term is not DC but the fan row #655 exists for (`torso reads as one solid, not a fan of
+       slabs`), which is where a body being carved into slabs actually gets caught. Measured at ABATOIR
+       CORE's three seats, this byte the only one moved (torso gradient / torso:room / DC vs 1.20 /
+       wobble vs 0.085):
+         1 period  1.15 / 1.48 / 0.96 dL-px   0.91 / 1.03 / 0.22   0.69 / 1.06 / 0.86   0.080 / 0.056 / 0.031
+         2 periods 1.47 / 2.09 / 1.65         1.17 / 1.45 / 0.38   0.01 / 1.05 / 0.11   0.085 / 0.078 / 0.047
+       The room's own slope is identical in both arms (1.26 / 1.44 / 4.31), so nothing outside his
+       silhouette moved, and `CONTRAST 0 FAILURE(S) of 127 rows` at the arm. TWO IS THE TOP OF THIS
+       TERM, not a dose to tune upward: cam 0's fan row lands ON its 0.085 ceiling here, and a third
+       period is the slab fan #655 was filed to kill. It stays whole (an integer count), so the far
+       coarsening is still unreachable - with the count doubled a body would have to project under
+       TS_MINP px at ~100 m to reach it, where no pixel of it is torso. */
+    b.tcy = 2 / (2 * (s.shLat * 1.05 + s.torso * 0.42));
+    /* #922 THE TORSO'S SEAM RAN IN ONE DIRECTION ONLY, and one direction is a corrugation, not armour.
+       The coord was `x + z` with the height weight at 0 (`rgY`, declared beside `rg`), and local `y` IS
+       world height (`VZ = o.z + by*sc`), so across his chest the wave never travelled: a front face is a
+       set of vertical ridges, which is the shape the report described - "sheets of flat colour, one hard
+       vertical edge". `surface` already refuses this shape on a crate and names the term that fixes it
+       (#533's PS_HCYC); bodies were exempt only because "every body pixel in the gate is recorded" against
+       that coord, and since #655 the torso read is geometry-normalised and #945 added a range-independent
+       walk, so the exemption's reason is spent.
+         It is NOT PS_HCYC. That 0.9 was chosen because at 1.0 a crate's y span is 6.667 periods - a third
+       left unpaired, so the face gains light (#371, #533 take two). The rule is WHOLE periods per span at
+       BOTH levels of the coarsening, so the weight is derived from this torso box's own spans exactly the
+       way `tcy` above is: the y span is `shTop - hipY`, and two whole periods across it is
+       `rgY = 2 / ((shTop - hipY) * tcy)`. That puts 2.000 periods on the height axis against the 2.000 the
+       x+z span already carries, and 1.000 on both at TCYC/2 - the axes are paired by construction rather
+       than by a tuned constant, so the wave stays zero-mean rather than merely measuring so:
+         grunt  tcy 4.9603  y span 0.3320  rgY 1.2145     brute  tcy 2.9577  y span 0.2438  rgY 2.7742
+         hound  tcy 3.2616  y span 0.3550  rgY 1.7273
+       Whole on every kind at both levels, so no kind is refused. Prop and view-model emits set the
+       register explicitly and are byte-identical; this one line and `b.rg = 0` below are the only body
+       writes, and the hip box under rg=0 still carries no coord. */
+    b.rgY = 2 / ((shTop - hipY) * b.tcy);
     b.box(0, (hipY + shTop) * 0.5, 0, s.shLat * 1.05, (shTop - hipY) * 0.5, s.torso * 0.42, sk);
-    b.rg = 0;                                        // the coord register stays: only torso vertices carry one
+    b.rg = 0; b.rgY = 0;                             // the coord register stays: only torso vertices carry one
     b.box(0, hipY + 0.02, 0, s.hipLat * 1.3, 0.045, s.torso * 0.34, dk);
     /* The neck. The torso box's top face now sits SHOULDER_LIFT*headR above the shoulder line and the
        head box starts above it, so the band this tube has to fill is shorter than the gap between the
@@ -2464,14 +2579,24 @@ const MESH = (function () {
        colour is a term of the shot), and only when the BODYPAINT arm is up so the paint arm still
        measures paint against light. There is no billboard copy - the one-read-site argument BODYHUE makes. */
     let fgX0 = 0, fgY0 = 0, fgW = 0, fgH = 0, fgFog = 0;
-    /* The three light ARMS (BODYDIST / BODYSHADE / BODYHAZE) are the probe's A/B on the light path, and
-       this term is computed from DELIVERED pixels. If it ran while an arm was raised it would measure the
+    /* The light ARMS (BODYDIST / BODYSHADE / BODYHAZE) are the probe's A/B on the light path, and this
+       term is computed from DELIVERED pixels. If it ran while an arm was raised it would measure the
        arm's own delta and push it back out - the failure the predictive form avoided by reading only the
        shipped light terms, and the reason L1's shade arm row went red the first time this was tried. So the
-       term is armed only in the shipped light configuration; in play all three are at their shipped values
-       and the term always runs, and under an arm the arm is left to speak for itself. */
+       term is armed only in the shipped light configuration; in play every term is at its shipped value
+       and the push always runs, and under an arm the arm is left to speak for itself.
+         #922 reads that condition through BODYCFG, its OWN register, rather than through BODYSHADE.
+       The two were always doing different jobs: BODYSHADE says WHICH ramp the body is drawn with, and the
+       test here says "the pixels I am about to read are the shipped ones". Those happened to agree while
+       BODYSHADE's shipped value meant the old form. #922 shipped the centring AT BODYSHADE 1, so the arm
+       moved to 0, and the borrowed test started firing on the arm: a shade A/B that put the old scale back
+       also stood this push down, so one render of the pair priced the centring AND the absence of the
+       push - which is the 56 and 95 pixels outside the body's own silhouette that contrast's shade rows
+       counted at L2 16 m and L3 8 m. The push now answers to BODYCFG alone (plus the two terms whose
+       shipped value is still their shipped value), so an A/B on the ramp moves the ramp and nothing else,
+       and the push has a switch of its own that moves no pixel in a frame with no body in it. */
     if (BODYFG && BODYPAINT && BODY && !MDL && !pr && !FLASH && ALPHA >= 1 && tYc > 0.75 &&
-        BODYSHADE && BODYDIST && !BODYHAZE) {
+        BODYCFG && BODYDIST && !BODYHAZE) {
       const fq = 1 / tYc;
       const fsx = (BW * 0.5) * (1 + (cam.invDet * (dirY * ex - dirX * ey)) * fq);
       const fsy = horizon + (BH * (eyeZ - (o.z + sc * 0.5))) * fq;
@@ -2547,12 +2672,30 @@ const MESH = (function () {
            but multiplying it by R0 + R1*d makes the shape ramp also a SCALE on that field: its mean over
            d is R0 + R1/2 = 0.725 for the enemy pair, so a body in its own lit cell kept under three
            quarters of the light the wall behind it keeps, and a face turned off the key kept R0 alone.
-           BODYSHADE 0 centres the SAME ramp on the field instead of on zero - `1 + R1*(d - 0.5)`, mean 1
+           BODYSHADE CENTRES THE SAME RAMP ON THE FIELD INSTEAD OF ON ZERO - `1 + R1*(d - 0.5)`, mean 1
            over the ramp's own domain - so form keeps its full spread and the field arrives whole in the
            average. The VIEW MODEL keeps the shipped form either way: #376 owns the gun's shading, and
            the pair below is not the gun's history. There is no billboard copy of this term - the sprite
-           path has no N*L at all (js/40_render.js:2291) - so unlike BODYDIST one read site is enough. */
-        const sh = MDL || BODYSHADE ? R0 + R1 * d : 1 + R1 * (d - 0.5);
+           path has no N*L at all (js/40_render.js:2291) - so unlike BODYDIST one read site is enough.
+             #922 SHIPS IT, and scopes it with the flag the COVERAGE MASK already uses: `!BODY` keeps the old
+           form, so the centred ramp reaches a CHARACTER's draw and nothing else. The read site serves more
+           than characters - `lw = pl ? aw : sh` hands `sh` to any mesh draw that is not in PROPLIT, so a
+           prop outside that list, a hazard or any other non-character mesh was being re-centred too, and
+           those pixels are not in the mask, which is the 56 and 95 px outside the silhouette that
+           contrast's shade rows billed to the centring. Deleting #611's push outright (BODYCFG=0 in a
+           JSDIR copy, so no figure-ground term runs in either arm) left the same 56 px, which is how this
+           was attributed: not the push, the scope. BODY is the flag js/00_core.js documents the mask stamp
+           reads, so "what the centring repaints" and "what the mask owns" are now the same set by
+           construction, not by two files agreeing.
+             The register is the A/B the other way: BODYSHADE DOWN puts the OLD `R0 + R1*d` back, so
+           contrast's shade rows price what this tree no longer spends, and with the push on BODYCFG the
+           arm moves the ramp and nothing else. Centring is neutral over the ramp's DOMAIN, not over the
+           delivered pixels: the last report measured the pixel-weighted mean of `d` at 0.43 at 4-6 m and
+           0.69 at 8 m, so no single centre
+           is neutral for what the eye receives at every range - #371's `PROP_DMEAN` trick has no value to
+           sit at for a body, because a body's FACE MIX moves with range and a box's does not. That is why
+           this centres on 0.5 and lets the distance rows measure what the pixels actually average. */
+        const sh = MDL || !BODY || !BODYSHADE ? R0 + R1 * d : 1 + R1 * (d - 0.5);
         const fk = FL ? FL * 1.1 * Math.exp(-dc * 0.30) : 0;
         /* #371: on a PROP the form term scales the WHOLE light, ambient included, and it is centred on
            one so the mean is held by construction instead of by re-pairing R0 against R1.

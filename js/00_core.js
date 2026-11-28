@@ -64,13 +64,20 @@ var BODYDIST = 1;
    alone - 30% of a field the wall behind it keeps whole. That is the half #415 did not pay and the
    distance rows in tools/view.js contrast have been reporting as an unpriced residual ever since: a
    body in its OWN lit cell, 8-16 m out, still lands 20-39 luma under its own background.
-   1 (shipped) = the field is MULTIPLIED by the ramp, `sh = R0 + R1*d`. That is main, byte for byte; this
-       register moves no pixel until a row asks.
-   0 = the ramp CENTRED ON THE FIELD instead of on zero, `sh = 1 + R1*(d - 0.5)`, whose mean over the
-       ramp's domain d in [0,1] is exactly 1 - so the field reaches a body whole in the average while the
-       lit/shaded SPREAD stays the R1 #371 measured. Same constant, so it re-centres a kind's faces
-       instead of dimming it. What the PIXELS average is the face distribution's business, and the row
-       measures that rather than asserting this sentence.
+   1 (shipped, #922) = the ramp CENTRED ON THE FIELD instead of on zero, `sh = 1 + R1*(d - 0.5)`, whose
+       mean over the ramp's domain d in [0,1] is exactly 1 - so the field reaches a body whole in the
+       average while the lit/shaded SPREAD stays the R1 #371 measured. Same constant, so it re-centres a
+       kind's faces instead of dimming it. What the PIXELS average is the face distribution's business,
+       and the row measures that rather than asserting this sentence: the mean of `d` over the faces a
+       body KEEPS is 0.43 at 4-6 m and 0.69 at 8 m, so there is no per-kind constant that is neutral at
+       every range and this term is deliberately neutral over the DOMAIN instead.
+   0 = the field MULTIPLIED by the ramp, `sh = R0 + R1*d`, mean R0 + R1/2 = 0.725 - the form #407
+       priced and #922 shipped out. The polarity is the opposite of what it was before #922 landed, so
+       read the row, not this sentence, for which half of the field the term still owes: the arm is DOWN
+       when the centring is in force and the row goes red if the two renders agree.
+   Why it is not #371's `PROP_DMEAN`: a box's face mix never changes with range and a body's does, so a
+   single authored centre has no value to sit at. That is the last report's own measurement, and it is
+   why this centres on 0.5 rather than hunting a constant.
    ONE read site, and the view model (`MDL`) is excluded by that site: #376 owns the gun's shading and
    this issue is about bodies IN the world. There is also no billboard copy to keep in step, unlike
    BODYDIST - drawBillboard has no N*L term at all, its `ramp` is a vertical gradient
@@ -177,6 +184,22 @@ var BODYHUE = 1;
    1 (shipped) = the conditional push runs. 0 = the form before this increment: his value is whatever the
        multiply leaves, which is what the near-zero deals in the sweep are the A/B for. */
 var BODYFG = 1;
+
+/* #922: BODYCFG is the figure-ground push's OWN arming - the register that says "the shipped light terms
+   are at their shipped values, so reading DELIVERED pixels is safe". It replaces BODYSHADE in that test
+   and in that test only.
+   Why it has to be its own register: BODYSHADE selects WHICH shape ramp a body is drawn with, and until
+   #922 the same value also stood the push down, because the push reads delivered pixels and an arm that
+   changes delivered pixels would otherwise have its own delta measured and pushed back out. #922 shipped
+   the centred ramp at BODYSHADE 1, which makes BODYSHADE=0 the ARM rather than the shipped state - so an
+   A/B on the ramp silently disarmed the push as well, and one render of that pair is two terms. The
+   figure-ground rows in tools/view.js contrast counted the leak as pixels moved OUTSIDE the body's own
+   silhouette (56 at L2 16 m, 95 at L3 8 m): the push firing in one arm and not the other.
+   It moves no pixel: in play every light term is at its shipped value, BODYCFG is 1, and the push is
+   armed exactly as it was when the test read `BODYSHADE && BODYDIST && !BODYHAZE`. 0 is a probe-only arm
+   that stands the push down WITHOUT touching any light term - which is what makes it the control for
+   this register: arm up and arm down with no body in the frame must be the same bytes. */
+var BODYCFG = 1;
 
 /* ---------------- config ---------------- */
 let FOGC = [9, 12, 20];   // per level: air has a colour

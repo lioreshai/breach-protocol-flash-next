@@ -289,6 +289,39 @@ let STEPROW = 4, STEPAMT = 0, STEPDEF = 12;
    what keeps that counterfactual byte-identical - the ceiling pass pays one null test and stops. */
 let CF_FIX = null;
 const SEAMK = 0.45;                             // deck LIGHT at which the absolute term has faded out
+/* #517 (THE MARK'S STRENGTH ON A BRIGHT DECK): the ABSOLUTE half's FLOOR, in lumas, and it is
+   light-INDEPENDENT - the one thing `SEAMA`'s fade is not.
+
+   `SEAMA` pays a dark deck what a multiply cannot buy there (#385), and it fades to zero as the deck's
+   light reaches `SEAMK`. That fade is the right shape for the room it was bought for and the wrong shape
+   for the one #517 left behind: a step DOWN seen from above keeps no face at all, so its lip carries only
+   the eye-side crease, whose mark is a multiply on rows the deck owns - and a multiply is scale-free, so
+   its CONTRAST is whatever the ramp happens to be at the row the crease reaches, and nothing about it
+   grows when the surface it sits on gets brighter. Measured at THE STACK's face lip, 43% against the 45%
+   bar, with the mark's own depth unchanged at 19.5 px-lum (`view.js bands`, one tree: main measures 21.8
+   at the same lip, so the mark did not thin - the ramp did).
+
+   A floor under the absolute half is the mechanism #385 already ships and #515 already trusted for the
+   tread nosing (`STEPAMT` is lumas, not a fraction, "for #385's reason"): an edge in lumas, applied to
+   exactly the rows the multiply already touches, so the band's WIDTH, its locality and its far share are
+   untouched and only its depth on a bright surface moves. It is a FLOOR and not a dose - `ab` is taken
+   from the authored term whenever that term is already deeper, so a dark deck is byte-identical, and it
+   runs only where `dir > 0`, i.e. the crease that runs DOWN the deck's own rows at a step seen from
+   above; a step UP and a flat level run no new arithmetic at all. */
+const SEAMABS = 6;                              // lumas: the crease's absolute floor on a step DOWN seen from above
+/* #941: the crease's DARK FLOOR, in lumas, and it is the floor under the OTHER half. `SEAMABS` is a floor
+   on how much the crease may TAKE; this is a floor on how much light the crease may LEAVE. A multiply is
+   scale-free (#385's own sentence), so on a far face the march already left at rgb 4,8,9 the lip row's 16%
+   delivers rgb 0,1,1 - a hole, not a shaded surface - and it does so on the rows anchored to the boundary
+   the march stopped at, which is why the shipped picture reads as a staircase of holes along a storey's far
+   edge rather than as a dark edge (#941, three deployed seats). It is scoped to the pixels the crease would
+   otherwise take below it, so a lip row the term already left at or above the floor is byte-identical, a
+   flat column runs no new arithmetic at all, and the frame cannot get brighter: this raises nothing above
+   the light the surface arrived with. The value is the generator's own dark floor stated in lumas (a deck
+   below `OWN_MIN` is "not a floor that is actually LIT", js/20_level.js:4246) read at the frame's own
+   black census (`tools/view.js stats`'s dark bar is luma 6), and it sits below every lit lip that
+   `surface`'s SEAM rows and `bands`' seam rows measure, so those rows are measuring the same ink as before. */
+const SEAMNK = 8;
 /* #178: contact shadow. A rim ADDS to the body, and the rig raster is multiplied by scene light at
    composite, so an additive rim is weakest in the dark rooms that need separation most - AMB 0.19
    floors it. This SUBTRACTS from the world a body occludes instead: a short radial falloff on the
@@ -3142,6 +3175,27 @@ function gndBuild(row, isF, absP, pl, tex, sc, fcR, fcG, fcB, fl, amb, dOv) {
         gMXB = gMVoid * xb * (1 - ve) * mm.meanNE[1] / alF[1];
         gMXC = gMVoid * xb * (1 - ve) * mm.meanNE[2] / alF[2];
         gMXE0 = gMVoid * ve * mm.meanEM[0]; gMXE1 = gMVoid * ve * mm.meanEM[1]; gMXE2 = gMVoid * ve * mm.meanEM[2];
+        /* #941 - THE AIR COLOUR THIS COPY NEVER PAID. The three `gMXF` scalars are declared with the rest of
+           the arm (js/40_render.js:3079) and READ by both writes of this arm (`+ fg * gMXF0`, below), and they
+           were never assigned: every armed run carried them at their 0. The row copy assigns its mirror
+           unconditionally - `xSr = vr * fcR` - and its write is `+ fg * xSr`, so the fog-weighted AIR colour
+           exists in one copy of this body and not the other, which is exactly the invariant AGENTS.md prices
+           ("the ground pixel body exists twice"). Why that is a hole rather than a dimming: this copy weights
+           its terms by `1 - vV` (the shipped fill, and `vV` is the VOIDK share, which reaches 1 at
+           FARB * 1.6 = 35.2 m) and by `1 - fog(crossing)`, and out where the void share saturates the fog has
+           saturated too (~0.99). Past that radius every term this copy carries is multiplied by ~0 and the one
+           that should survive is the missing one, so a ray that left the level past 35 m delivers rgb 3,0,0 -
+           no surface, no light - while the row copy answers the same ray with the air colour at ~21 lumas.
+           The queued columns come in runs of one cell crossing, so the shortfall is a step per cell along the
+           far edge of a storey: the torn black staircase #941 reports at its shipped seats (477 px under luma
+           1.5 in the top 45 % at ABATOIR CORE `seed 63` seat 9.50,10.50, and 277 at THE STACK `seed 60` seat
+           1.50,2.50, both on the byte this fix replaces). Attributed by arm, not by argument: `GNDFB`,
+           `FARVOID` and `FARCROSS` each take the census to 0 while `GNDTX` and `CGW` leave it at 477, and
+           `castGround` alone on a cleared buffer produces the band while `castWalls` alone produces none.
+           Restoring the assignment costs no test and no constant: the arm is already gated, `gMVoid` and the
+           fog colour are already in scope, and inside FARB*1.6 the share `fg` there is multiplied by is
+           already what the row copy pays - so the pixels that move are the ones that were answering nothing. */
+        gMXF0 = gMVoid * fcR; gMXF1 = gMVoid * fcG; gMXF2 = gMVoid * fcB;
         /* #616, SECOND COPY of the distance term: the mean keeps the fog weight, the deviation takes the
            distance share (AGENTS.md: change one copy, change the other). xPr * alF cancels, so the mean is
            a run constant. */
@@ -4274,6 +4328,11 @@ function seamCrease(x, t, zA, zB, amp, dir, deckLit, yCap, zg) {
     ab = SEAMA * (1 - deckLit / SEAMK);
     if (ab > SEAMA) ab = SEAMA;
   }
+  /* #517: the light-independent floor, and it is scoped to the one crease #517 left holding the edge
+     alone - a step DOWN, seen from above, whose face the deck occludes, whose rows the deck owns, and
+     whose mark is therefore nothing but this ramp. `dir > 0` is exactly that crease (`rzf > rze ? -1 : 1`
+     at both call sites), so a step UP, a flat column and the far floor's own crease are bit-identical. */
+  if (SEAMABS > 0 && amp < 0 && dir > 0 && ab < SEAMABS) ab = SEAMABS;
   for (let k = kAt; k <= kEnd; k++) {
     const y = y0 + dir * k;
     if (y < 0) { if (dir < 0) break; continue; }
@@ -4284,8 +4343,26 @@ function seamCrease(x, t, zA, zB, amp, dir, deckLit, yCap, zg) {
     // floor in front of it, a gradient alone passes THROUGH the floor's brightness and the lip
     // vanishes (measured on L1: mean |dL| 25 with the gradient, and the sign of the difference
     // changes across levels, so an unsigned threshold cannot be the whole gate)
-    const kk = 1 + amp * (1 - k / bw) - (!k && amp < 0 ? SEAMC : 0);
-    const d = ab * (1 - k / bw);
+    let kk = 1 + amp * (1 - k / bw) - (!k && amp < 0 ? SEAMC : 0);
+    let d = ab * (1 - k / bw);
+    /* #941: a crease is a DOSE on the light that is there, and where the surface under it carries none
+       there is nothing to dose. `kk` takes 84% off the lip row whatever the pixel underneath reads, so a
+       far face arriving from the march at rgb 4,8,9 leaves at rgb 0,1,1 - not a shaded surface, a HOLE -
+       and because the band is anchored on the boundary the march stopped at, those zeroes run one step
+       per cell along a storey's far edge: the torn black staircase #941 reports at three shipped seats.
+       So the write is floored at `SEAMNK` lumas measured along the pixel's OWN hue - the whole darkening
+       (multiply and absolute term together) is scaled by one `q` until the delivered luma reaches the
+       floor, and a pixel carrying less than the floor is left alone entirely, which is the same statement
+       the generator makes about a deck at `OWN_MIN`: below the dark floor there is no surface to shade.
+       It is a floor and not a dimmer: a pixel the crease already left at or above `SEAMNK` is the byte it
+       always was, so a lit lip - and every flat column, which runs no crease at all - is byte-identical,
+       and the only pixels that move are the ones the crease was driving to zero. */
+    if (SEAMNK > 0 && kk < 1) {
+      const Li = 0.2126 * (v & 255) + 0.7152 * (v >> 8 & 255) + 0.0722 * (v >> 16 & 255);
+      const fl = Li < SEAMNK ? Li : SEAMNK;
+      const Lo = Li * kk - d;
+      if (Lo < fl) { const q = (Li - fl) / (Li - Lo); kk = 1 - (1 - kk) * q; d *= q; }
+    }
     px[i] = (0xFF000000 | clampi((v >> 16 & 255) * kk - d) << 16 | clampi((v >> 8 & 255) * kk - d) << 8 | clampi((v & 255) * kk - d)) >>> 0;
   }
 }

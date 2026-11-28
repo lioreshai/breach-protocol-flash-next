@@ -257,6 +257,12 @@ function devRoute(o) {
   }
   if(!pick){ENEMIES.length=0;out.body=null;out.noSeat=tried;}  // no seat to measure: say so, do not place him anyway
   else{e.x=pick.x;e.y=pick.y;e.ang=Math.atan2(P.y-e.y,P.x-e.x);out.body=pick;out.kind=e.kind;out.tried=tried;}` : 'out.body=null;'}
+  /* --turn <rad>: turn the EYE after he has been seated, leaving his feet where the search put them.
+     The bearing search above turns the BEARING, so it always parks him inside the frustum - which is
+     right for a figure-ground row and wrong for "do the flat sheets come back at the edge of vision",
+     because the clipped body that frame describes is the one the report was filed against. One look()
+     after the seat is the difference, and it moves no pixel of the room: the camera stays on its cell. */
+  ${o.turn ? 'DEV.look(' + (+o.turn) + ');' : ''}
   DEV.tick(1);
   try{resume();}catch(err){out.resumeErr=String(err);}
   DEV.tick(1);
@@ -300,6 +306,71 @@ function devRoute(o) {
       var s='';for(var q2=0;q2<nb;q2++)s+=String.fromCharCode(by[q2]);
       out.m=btoa(s);out.buf=[BW,BH];out.dims=[cv.width,cv.height];COV=null;}}
   ENEMIES.length=0;out.c=[];for(var u2=0;u2<${ARMS}*2;u2++){DEV.tick(1);out.c.push(cv.toDataURL('image/png').split(',')[1]);}
+  out.png=null;` : ''}
+  /* THE PICKUP ARM (#862's last acceptance row). A pickup is not a PROPKIND and it is not a body, so
+     js/00_core.js COV stamps NOTHING for it: props, pickups and the view model all stamp 0. There is
+     therefore no renderer mask to read a pickup's own pixels out of, and a bounding box carried over from
+     the deal the defect was filed on measures whatever stands in that part of THIS frame - measured on
+     the deployed build, the same rectangle returned identical digits in the shipped and the falsifier arm
+     (issue #862, 2026-11-24), which is the signature of a box with no kit in it. The only honest pickup
+     mask left is a PARK-AND-RESTORE inside ONE page load: draw the frame, empty PICKUPS, draw it again,
+     put them back. Same load, same frozen clock, same bake, same rig pose, and updatePickups (js/30_entities.js)
+     is inside the gated update(), so the bob phase is pinned by DEV.freeze and cannot make the two arms
+     disagree about where the tin stands. Frames: K parked, 2K own - the own arm's two halves are the
+     identity control, so a mask that is weather says so in its own row.
+     The camera turns toward the nearest live pickup when the dealt heading leaves it out of the frustum:
+     the row is about the object, and a row with no object in it measures the harness. The realised range
+     and whether the turn happened are printed beside the digits.
+
+     THE BOX IS THE KIT'S OWN SILHOUETTE, NOT A REGION (#862 Done-when 1, second pass). A park-and-restore
+     difference also contains everything the kit was HIDING: measured on the Pages build, 15235 kept px
+     with the OWN arm 6.99 luma DARKER than the parked arm at those pixels, which is the far wall the tin
+     occludes, not the tin. So the mask is now intersected with the projected extent of the kit's own
+     authored box, computed by the page's OWN project() (js/40_render.js:5704) at the eight corners of
+     that box as the renderer places it: the draw entry lifts z to floorAt(x,y) + 0.16 + sin(bob)*0.05 at
+     scale 0.42 (js/40_render.js:1013) and pickParts authors the extents - the wrap band reaches 0.315 in
+     x/z and the case spans body-y 0.25..0.74 (js/13_mesh.js:895-900), so 0.132 m of half-width and
+     0.105..0.311 m above that anchor. What falls INSIDE the box is the object; what falls outside it is
+     the wash and the occlusion, printed beside the row rather than averaged into it. The box is a clip,
+     not a second mask: it cannot add a pixel the park-and-restore difference did not already light up, and
+     it is computed by the same project() the overlay uses, so it cannot disagree with where the kit drew. */
+  ${o.pickup ? `out.pk={};
+  var nk=null,nd=1e9,ni9=-1;
+  /* THE PICKUP IS THE NEAREST ONE THE EYE CAN ACTUALLY REACH, not the nearest one in XY. Chosen by XY -
+     how this arm shipped - the row can pick a tin standing behind a pillar: the parked arm then changes
+     nothing at the tin's own screen position and everything in the light pool it spills, and the row
+     reports a kit while measuring a deck. blocked() is the same line test the body seat search uses. */
+  for(var pi=0;pi<PICKUPS.length;pi++){var k=PICKUPS[pi];if(k.dead)continue;
+    var dd=Math.hypot(k.x-P.x,k.y-P.y);
+    if(dd<nd && !blocked(P.x,P.y,k.x,k.y)){nd=dd;nk=k;ni9=pi;}}
+  if(!nk){for(var p2b=0;p2b<PICKUPS.length;p2b++){var kb=PICKUPS[p2b];if(kb.dead)continue;
+    var d2b=Math.hypot(kb.x-P.x,kb.y-P.y);if(d2b<nd){nd=d2b;nk=kb;ni9=p2b;out.pk.blind=1;}}}
+  out.pk.count=PICKUPS.length;
+  if(!nk){out.pk.why='no live pickup in the level';}
+  else{var aim=Math.atan2(nk.y-P.y,nk.x-P.x),dA=aim-P.ang;
+    while(dA>Math.PI)dA-=TAU;while(dA<-Math.PI)dA+=TAU;
+    out.pk.type=nk.type;out.pk.range=+nd.toFixed(2);
+    /* Every live pickup, where the page's own projection puts it, and whether the camera can see it: the
+     * row claims ONE object, and the census is how the row can say which one it measured. */
+    out.pk.list=[];
+    for(var p9=0;p9<PICKUPS.length && out.pk.list.length<10;p9++){var k9=PICKUPS[p9];if(k9.dead)continue;
+      var z9=floorAt(k9.x,k9.y)+0.16+Math.sin(k9.bob)*0.05,s9=project(k9.x,k9.y,z9+0.2);
+      out.pk.list.push({t:k9.type,d:+Math.hypot(k9.x-P.x,k9.y-P.y).toFixed(2),
+        x:s9?Math.round(s9.x):-1,y:s9?Math.round(s9.y):-1,los:blocked(P.x,P.y,k9.x,k9.y)?0:1});}
+    if(Math.abs(dA)>0.55){P.ang=aim;out.pk.turned=+dA.toFixed(3);DEV.tick(1);}
+    /* The kit's own projected extent, in the SAME display pixels the delivered PNG is read at. */
+    var pkz=floorAt(nk.x,nk.y)+0.16+Math.sin(nk.bob)*0.05,pkx=0.132,bb=null;
+    for(var c1=0;c1<2;c1++)for(var c2=0;c2<2;c2++)for(var c3=0;c3<2;c3++){
+      var pp=project(nk.x+(c1?pkx:-pkx),nk.y+(c2?pkx:-pkx),pkz+(c3?0.311:0.105));
+      if(!pp)continue;
+      if(!bb)bb=[pp.x,pp.x,pp.y,pp.y];
+      if(pp.x<bb[0])bb[0]=pp.x; if(pp.x>bb[1])bb[1]=pp.x;
+      if(pp.y<bb[2])bb[2]=pp.y; if(pp.y>bb[3])bb[3]=pp.y;}
+    out.pk.box=bb?bb.map(function(v){return Math.round(v);}):null;
+    var PS=PICKUPS[ni9];PICKUPS.splice(ni9,1);out.c=[];
+    for(var u3=0;u3<${ARMS};u3++){DEV.tick(1);out.c.push(cv.toDataURL('image/png').split(',')[1]);}
+    PICKUPS.splice(ni9,0,PS);
+    out.b=[];for(var u5=0;u5<${ARMS}*2;u5++){DEV.tick(1);out.b.push(cv.toDataURL('image/png').split(',')[1]);}}
   out.png=null;` : ''}
   return out;})()`;
 }
@@ -547,8 +618,20 @@ function fgLine(tag, r, idn, k) {
      pinned  the literal 0.6 rad every seat used before arrival bearings were derived (#421),
              which is the heading tools/view.js's `seat price` row times its ratio against
      up      the dealt heading with the eye tilted at the storey the level built overhead
-     circle  the same seat through 8 yaw samples, so a swing that is really "any heading costs
-             about the same" cannot hide behind the two named ones
+     hold    the DEALT POSE AGAIN, timed in a different slot of the same round. It is the timer's
+             mirror: one pose timed twice, so its ratio against `dealt` has to be 1.00 and any
+             drift is the harness, not the room. Before #728 the only self-check the read had was
+             the accident of a sector whose dealt heading equals the pinned literal, and on the
+             build that ships none of the four does - so the table printed with no self-check at
+             all. `hold` makes the check unconditional.
+     circle  the same seat through a full turn sampled at --yawSamples headings (8 by default), so
+             a swing that is really "any heading costs about the same" cannot hide behind the two
+             named ones. The headings are visited in a DIFFERENT PERMUTATION every round (a seeded
+             shuffle, so the read is reproducible). Rotating the start of a cyclic sweep is not a
+             control: in a sweep heading h always follows h - step, so the price of that TRANSITION
+             is confounded with the heading and lands on the same heading in every round - which is
+             indistinguishable from that heading costing more. Shuffling leaves a bearing that really
+             costs more standing out while a transition cost averages onto every heading.
  * The clock is frozen (DEV.freeze) so every arm renders the same world: what varies between the
  * arms is what the eye contains, which is exactly the quantity #529 argues about. The frame is
  * timed with the page's own performance.now() around DEV.tick, so it includes everything the
@@ -563,12 +646,72 @@ function fgLine(tag, r, idn, k) {
  * 54.43 ms in the other - a 1.30x swing made by nothing but the order the arms ran in, on a shared
  * runner. A ratio taken off a drifting timer is not a measurement, so every arm is sampled once per
  * round, the round rotates which arm goes first, and each arm's number is the median of its rounds.
- * The sectors where the dealt heading equals the pinned one are then a free instrument: one pose
- * timed twice, so their ratio has to land on 1.00, and one that does not says the timer is drifting.
- * That is printed as IDENTITY SPREAD on the row and fails the read - a ratio that cannot tell an
- * identical frame from itself cannot price a turned one. */
+ * The `hold` arm is that instrument by construction rather than by luck: a ratio that cannot tell an
+ * identical frame from itself cannot price a turned one, and it is printed as IDENTITY SPREAD on the
+ * row and fails the read.
+ *
+ * WHY THE EXTREMES ARE RE-TIMED BEFORE ANY PASS IS NAMED. The two extremes of the circle get a pair of
+ * arms of their own (`b_hi`, `b_lo`) in which the order ALTERNATES with the round, and that pair is the
+ * reproducibility check on the circle: if the slow heading of the sweep is not still the slow heading
+ * when it is timed in another slot of the run, with a different heading before it, then what spread is
+ * real belongs to the sequence and not to the bearing, and naming a pass would be naming an artefact.
+ * Measured on the deployed build before the shuffle existed (16 headings, 5 rounds, seed 60): the sweep
+ * spread 3.4-4.4x and the same headings came out slow in all four sectors, while the same two extremes
+ * re-timed as a pair came back with the sign REVERSED in all four (-19.1, -20.3, -19.1, -30.6 ms).
+ *
+ * NAMING THE PASS THAT PAYS (#728 Done-when 2). Once the circle says a heading pays, the route turns
+ * the two extremes of it - the slowest and the fastest heading of the turn - into a second pair of
+ * arms, and times each of them again once per candidate pass with that pass switched off through the
+ * page's own DEV.set registers. The shipped value of every register is snapshotted off the page before
+ * the first arm and restored after every one, so no ablation leaks into the next. A pass that costs
+ * the same at both headings is not the swing; a pass whose OFF half closes the gap IS the swing.
+ *
+ * WHY EVERY ABLATION RUNS BESIDE AN INERT CONTROL, AND WHY "% CLOSED" IS A DIFFERENCE OF PAIRS. The
+ * first version took closed as (seatGap - ablatedGap) / seatGap, with seatGap from the slot-trading
+ * pair in its own loop and ablatedGap from the ablation loop. That mixed two places in the run, and a
+ * reader proved the mix was the whole figure: an arm given the SHIPPED value of its own switch - so
+ * the switch fires and changes nothing - closed 59-64% of a 47 ms gap, indistinguishable from the two
+ * arms that really moved the page beside it (62/61, 62/60), and every arm on the line landed at 54-71%
+ * of one gap, which cannot be additively true (#936 review). The floor is that the ablation pair is
+ * timed later in the run than the b-pair, so the run's own drift rides on the numerator. So each arm
+ * now runs with a CONTROL of its own, in the same round and one sample away: the identical switch,
+ * armed the identical way, handed the value the page already holds, so it changes nothing at all. The
+ * control is timed lo-then-hi exactly as its arm is, with the slot both trade by driven by the same
+ * (q1+p)%2, so the two pairs sit at the same position in the run and the drift cancels in
+ * (control - off). "% closed" is therefore (controlPair - offPair) / seatGap: 0% now means "this pass
+ * is not it", not "this is where the run happens to be". It costs twice the ablation ticks, and the
+ * seat's own gap stays the slot-trading b-pair's figure, because that is the sweep's number and the
+ * sentence quoting it should still quote the sweep. */
+const PASS_AB = [
+  ['farband', 'gndtex', 0, () => GNDTX],        // the deferred far band's own texel fetch (#616)
+  ['wash', 'gndfar', 0, () => GNDFB],           // the far answer: wash past FARB vs the textured field
+  ['glow', 'glow', 0, q => q.glow],             // drawLightGlow
+  ['bloom', 'bloom', false, q => q.bloom],      // the bloom pass
+  ['decals', 'dmax', 0, q => q.dmax],           // the decal mask walk inside the wall span
+  ['shadows', 'shadow', 0, () => SHADOW],       // buildShadowGrid + the contact darkening reads
+  /* #728 Done-when 2, the shadow pass's OWN halves. `shadow` is one switch over two costs: a per-frame
+     build (buildShadowGrid fills MAP.w^2 grid heads and distance-culls every body and prop, js/40_render
+     :1994) and a per-PIXEL read (shadowFloor's chain walk, whose cost depends on which cells the eye is
+     in and so CAN vary with heading). Naming "shadows" as the payer cannot say which; a seat that pays
+     for its grid build pays at every heading, and a seat that pays for the walk pays by bearing, which is
+     the shape this issue is about. There is no DEV register for either half - SHADOW_PROP and SHADOW_FAR
+     are script-scope `let`s (js/40_render.js:446, :372), and a `let` at the top of a classic script lives
+     in the global lexical environment, so a function built by `new Function` from the page's own global
+     scope reaches it. That is the same mechanism DEV.set uses for the gnd* terms; here it is done without
+     touching js/ so the read still runs against the shipped build. Both arms RESTORE the value they read
+     off the page before the first arm, so neither leaks into the next. Each changes the PAINT as well as
+     the milliseconds - an ablation always does - so its number is that term's cost, not a free win. */
+  ['shbuild', null, 0, () => SHADOW_PROP, 'SHADOW_PROP'],  // the prop caster loop off: the grid is still
+  ['shdisc', null, 0, () => SHADOW_FAR, 'SHADOW_FAR']      // filled and culled but registers no disc
+];
+
 function costRoute(o) {
   const N = +o.frames || 4, R = +o.rounds || 5, M = +o.yawFrames || 3;
+  const S = Math.max(4, Math.min(32, +o.yawSamples || 8));
+  const AB = o.passes === false ? '[]' : JSON.stringify(PASS_AB.map(p => [p[0], p[1], p[2], p[4] || null]));
+  // one shuffle seed per (level, round), so the visit order varies across rounds and across sectors
+  // but a re-run of the same command replays the same order.
+  const SEED0 = 104729 * ((o.level | 0) + 1) + 13;
   return `(function(){
   var out={arms:{}};
   DEV.boot(); DEV.freeze(true); DEV.tick(30);
@@ -580,20 +723,93 @@ function costRoute(o) {
   DEV.tick(1);
   var st=DEV.state();
   out.name=st.levelName; out.layout=st.layout; out.mode=st.mode; out.p=st.p;
-  var x=st.p.x, y=st.p.y, z=st.p.z, dealt=st.p.ang, acc={};
-  function sample(tag,ang,pitch,n){
+  var x=st.p.x, y=st.p.y, z=st.p.z, dealt=st.p.ang, acc={}, nsp={}, warm={}, posat={};
+  function sample(tag,ang,pitch,n,pos){
     DEV.cam(x,y,z,ang,pitch);
-    DEV.tick(2);                                  // settle: the first frame of a new view pays the caches
+    var w0=performance.now(); DEV.tick(1);         // the RE-POSE term: what arriving at this view costs
+    (warm[tag]=warm[tag]||[]).push(performance.now()-w0);
+    DEV.tick(1);                                  // settle, exactly the second half of the old tick(2)
     var t0=performance.now();
     for(var i=0;i<n;i++) DEV.tick(1);
     (acc[tag]=acc[tag]||[]).push((performance.now()-t0)/n);
+    if(pos!==undefined)(posat[tag]=posat[tag]||[]).push(pos);   // where in this round's visit order it ran
+    (nsp[tag]=nsp[tag]||[]).push(DEV.stats().drawCalls);   // sprites actually drawn in that frame
   }
-  var UP=BH*${YAWUP}, arms=[['dealt',dealt,0],['pinned',${PINHEAD},0],['up',dealt,UP]];
+  /* A TURN whose PREDECESSOR pose is always a DIFFERENT pose. warm.dealt is not one: in the rotating arm
+   * order hold sits immediately before dealt in EVERY round, and hold IS the dealt pose - so the first
+   * tick the dealt arm times is a HELD frame wearing a turn's name, which is how the cross-sector row
+   * priced the frame that turns at 0.53x a held frame for a term that was never a turn (#933 review).
+   * PARK takes the camera a quarter turn away and ticks once, UNTIMED, so the timed frame always starts
+   * from a view the frame before it did not have. Its held term is the dealt pose timed exactly as the
+   * dealt arm times it, so a park leaking past the settle shows as a gap between arms.turn and arms.dealt. */
+  function turnArm(tag,park,ang,pitch,n){
+    DEV.cam(x,y,z,park,pitch); DEV.tick(1);
+    DEV.cam(x,y,z,ang,pitch);
+    var w0=performance.now(); DEV.tick(1);
+    (warm[tag]=warm[tag]||[]).push(performance.now()-w0);
+    DEV.tick(1);
+    var t0=performance.now();
+    for(var i=0;i<n;i++) DEV.tick(1);
+    (acc[tag]=acc[tag]||[]).push((performance.now()-t0)/n);
+    (nsp[tag]=nsp[tag]||[]).push(DEV.stats().drawCalls);
+  }
+  function med(a){var s=a.slice().sort(function(p,q){return p-q});var m=s.length>>1;
+    return s.length%2?s[m]:0.5*(s[m-1]+s[m]);}
+  var UP=BH*${YAWUP}, arms=[['dealt',dealt,0],['pinned',${PINHEAD},0],['up',dealt,UP],['hold',dealt,0]];
+  var PARK=dealt+Math.PI/2;     // a quarter turn away: the turn a sweeping player actually makes per frame
   for(var r=0;r<${R};r++){
-    for(var k=0;k<3;k++){var a=arms[(k+r)%3]; sample(a[0],a[1],a[2],${N});}
+    turnArm('turn',PARK,dealt,0,${N});
+    for(var k=0;k<4;k++){var a=arms[(k+r)%4]; sample(a[0],a[1],a[2],${N});}
   }
-  for(var q=0;q<${R};q++) for(var k2=0;k2<8;k2++) sample('c'+k2,dealt+k2*Math.PI/4,0,${M});
+  var S=${S}, step=2*Math.PI/S;
+  function perm(n,seed){var a=[],i,j,t,s=(seed>>>0)||1;
+    for(i=0;i<n;i++)a.push(i);
+    for(i=n-1;i>0;i--){s=(Math.imul(s,1103515245)+12345)>>>0; j=s%(i+1); t=a[i]; a[i]=a[j]; a[j]=t;}
+    return a;}
+  for(var q=0;q<${R};q++){ var pm=perm(S,${SEED0}+q*7919);
+    for(var k2=0;k2<S;k2++){ var h=pm[k2]; sample('c'+h,dealt+h*step,0,${M},k2); }
+  }
+  var cmed=[]; for(var k3=0;k3<S;k3++) cmed.push(med(acc['c'+k3]));
+  var iHi=0,iLo=0;
+  for(var k4=1;k4<S;k4++){ if(cmed[k4]>cmed[iHi]) iHi=k4; if(cmed[k4]<cmed[iLo]) iLo=k4; }
+  out.circle=cmed; out.S=S; out.iHi=iHi; out.iLo=iLo;
+  out.hiSpr=med(nsp['c'+iHi]); out.loSpr=med(nsp['c'+iLo]);
+  // the two extremes get a baseline of their own, timed exactly like the ablations beside them
+  var aHi=dealt+iHi*step, aLo=dealt+iLo*step;
+  for(var q3=0;q3<${R};q3++){
+    if(q3%2){ sample('b_lo',aLo,0,${M}); sample('b_hi',aHi,0,${M}); }
+    else    { sample('b_hi',aHi,0,${M}); sample('b_lo',aLo,0,${M}); }
+  }
+  // DONE-WHEN 2: price every switchable pass at BOTH extremes. A pass that costs the same at each is
+  // not the swing; a pass whose OFF half closes the gap between the headings IS the swing.
+  var AB=${AB};
+  var snap={gndtex:GNDTX,gndfar:GNDFB,shadow:SHADOW,glow:GQ.glow,bloom:GQ.bloom,dmax:GQ.dmax};
+  /* A raw arm is switched by ASSIGNING a script-scope name, so its shipped value has to be read off the
+     page the same way (AB[p][3] is the name, AB[p][4] the value read back before anything was touched). */
+  function rawGet(e){ try { return (new Function('return ' + e))(); } catch (err) { return undefined; } }
+  function armSet(p,v){ if(p[3]) { try { (new Function('v', p[3] + '=v'))(v); } catch (err) { out.abErr=String(err); } }
+                         else DEV.set(p[1], v); }
+  for(var pz=0;pz<AB.length;pz++) if(AB[pz][3]) AB[pz][4]=rawGet(AB[pz][3]);
+  // a raw switch that reads back nothing did not arm, and an arm that never moved the page is a row about nothing
+  out.rawErr=AB.filter(function(p){ return p[3] && p[4] === undefined; }).map(function(p){ return p[0]+':'+p[3]; });
+  out.snap=snap;
+  /* One arm's two headings plus its INERT control's two headings, interleaved so the pair and its
+   * control occupy the same two slots of the same round. armSet(p,back) is the inert arm: for a DEV
+   * register that re-writes the snapshot, for a raw one it re-assigns the value rawGet read off the
+   * page, so the mechanism runs and the picture does not change. */
+  for(var q1=0;q1<${R};q1++) for(var p=0;p<AB.length;p++){
+    var nm=AB[p][0], reg=AB[p][1], offv=AB[p][2], first=(q1+p)%2, back=AB[p][3]?AB[p][4]:snap[reg];
+    /* off and its inert control ALTERNATE at each heading (arm,control,arm,control) so both pairs have
+     * the SAME two-sample separation and the same number of switch operations per sample: a drift that
+     * is linear in position within the round then biases the two pairs by the same amount and cancels
+     * in their difference, which is what makes "0% closed" mean the switch did nothing. */
+    armSet(AB[p],offv); sample(nm+(first?'_lo':'_hi'),first?aLo:aHi,0,${M}); armSet(AB[p],back);
+    armSet(AB[p],back); sample('nil_'+nm+(first?'_lo':'_hi'),first?aLo:aHi,0,${M});
+    armSet(AB[p],offv); sample(nm+(first?'_hi':'_lo'),first?aHi:aLo,0,${M}); armSet(AB[p],back);
+    armSet(AB[p],back); sample('nil_'+nm+(first?'_hi':'_lo'),first?aHi:aLo,0,${M});
+  }
   for(var t in acc) out.arms[t]=acc[t];
+  out.warm=warm; out.pos=posat;
   out.buf=[BW,BH]; out.tier=DEV.stats().tier; out.gfx=st.gfx;
   return out;})()`;
 }
@@ -602,6 +818,7 @@ const median = a => { const s = a.slice().sort((x, y) => x - y); return s.length
   : 0.5 * (s[s.length / 2 - 1] + s[s.length / 2]); };
 const med = a => +median(a).toFixed(2);
 const ID_TOL = 0.10;                              // how far one pose may time from itself, in x
+const YAW_FLAT = +(process.env.YAW_FLAT || 1.35);  // at or below this, a whole turn at one seat is FLAT
 
 async function cost(o) {
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'livecost-'));
@@ -615,7 +832,7 @@ async function cost(o) {
       if (!rows.length && !(await page.evaluate('!!(window.DEV && DEV.on)')))
         throw new Error(o.url + ' is not a ?dev=1 page (js/90_dev.js stayed inert)');
       const v = await page.evaluate(costRoute({ level: lvl, frames: o.frames, rounds: o.rounds,
-        yawFrames: o.yawFrames }));
+        yawFrames: o.yawFrames, yawSamples: o.yawSamples, passes: o.passes !== false }));
       rows.push(Object.assign({ level: lvl }, v));
     }
   } finally {
@@ -623,29 +840,234 @@ async function cost(o) {
     fs.rmSync(profile, { recursive: true, force: true });
   }
 
-  let swung = 0, ident = 0, drift = 0;
+  let swung = 0, ident = 0, drift = 0, paid = 0, flatN = 0, worst = null, spreadN = 0;
+  let pairHeld = 0, pairSwap = 0, pairFlat = 0;      // what the re-timed pair said, per sector
+  const swapList = [];
+  /* Every ablation, at every sector whose pair held. The closing row names ONE pass, and naming the
+   * single biggest closure across four seats is how a small denominator (L2's gap can be 11 ms while
+   * L0's is 28) gets reported as the answer - so the pass is chosen by the MEDIAN closure across the
+   * seats and every seat's own figure is printed beside it. */
+  const abAll = {};
+  const ctlBad = [];          // arms whose inert control never got sampled: closed would be a bare difference
+  const ctlSpread = [];       // how far the inert controls inside one sector disagree, in ms
+  const ctlFloors = [];       // every inert control's paired gap, all sectors: this run's floor
+  const nilAll = { hi: [], lo: [] };      // every inert SAMPLE, flat: the identity spread's raw material
+  const nilSlot = { hi: [], lo: [] };   // per-ARM median ms of the SHIPPED frame, one entry per arm/sector
+  let ctlSum = [];            // the sum of median closures, per sector: over 1.0 cannot be additively true
+  /* How many sectors the pass split is actually allowed to speak from - `held` AND `ctlOk`. The named
+   * pass is already gated on both (#936 review), but the additivity census was not: a sector that prints
+   * "this sector attributes NOTHING below" still fed a share into "the arms sum to L2 33%", so the
+   * closing sentence could read "this line over-attributes" about a sector that attributes nothing, and
+   * "no switch closes a quarter" could be reported for a run in which NO switch was ever testable.
+   * One counter, both gates. (#936 review, the two follow-ups it left open.) */
+  let attributed = 0;
   for (const r of rows) {
     if (r.error) { console.log('COST L' + r.level + ' ERROR ' + r.error); continue; }
-    const a = r.arms, dealt = r.p.ang;
-    const dms = med(a.dealt), pms = med(a.pinned), ums = med(a.up);
-    const circle = []; for (let k = 0; k < 8; k++) circle.push(med(a['c' + k]));
+    const a = r.arms, dealt = r.p.ang, S = r.S || 8;
+    const dms = med(a.dealt), pms = med(a.pinned), ums = med(a.up), hms = med(a.hold);
+    const circle = []; for (let k = 0; k < S; k++) circle.push(med(a['c' + k]));
     const differs = Math.abs(Math.atan2(Math.sin(dealt - PINHEAD), Math.cos(dealt - PINHEAD))) > 1e-6;
     const ratio = dms / Math.max(1e-6, pms);
     const upR = ums / Math.max(1e-6, dms);
     const lo = Math.min.apply(null, circle), hi = Math.max.apply(null, circle);
-    if (differs) { if (ratio >= LIVE_SWING) swung++; }
-    else { ident++; if (!(Math.abs(ratio - 1) <= ID_TOL)) drift++; }
+    if (differs && ratio >= LIVE_SWING) swung++;
+    /* The timer checked against itself, in EVERY sector: `hold` is the dealt pose timed again in a
+     * different slot of the same round, so the identity pair no longer depends on a sector happening
+     * to face the pinned 0.6 rad - and on the build that ships none of the four does, which is how a
+     * #728 circle table printed with no self-check behind it at all. */
+    const idR = dms / Math.max(1e-6, hms), spread = hi / Math.max(1e-6, lo);
+    ident++; if (!(Math.abs(idR - 1) <= ID_TOL)) drift++;
+    if (spread >= YAW_FLAT) { paid++; spreadN++; } else flatN++;
+    /* #728, the question the circle has never actually timed. Every arm above re-poses, SETTLES for two
+     * frames, and then times the frames AFTER the settle - so every number in this read is the cost of a
+     * HELD frame at some heading. A player sweeping a room does not get held frames: while the hand is
+     * moving, EVERY frame is a first frame after a pose change. `warm` is that frame - the first tick
+     * after DEV.cam, timed inside the same sample() call as the steady frames beside it, so the pair is
+     * paired by construction, not by an ordering trick. If it costs what the frames after it cost, the
+     * turn is free and the sweep's spread has to be a held-frame property; if it costs more, the hitch a
+     * player feels while turning is priced, and the heading spread is beside the point. */
+    const warm = r.warm || {}, posat = r.pos || {};
+    const m2 = v => (v && v.length ? med(v) : NaN);
+    const cat = (map, k) => (map['c' + k] || []);
+    const wCircle = []; for (let k = 0; k < S; k++) wCircle.push(m2(cat(warm, k)));
+    const allW = [], allS = [];
+    for (let k = 0; k < S; k++) { allW.push.apply(allW, cat(warm, k)); allS.push.apply(allS, a['c' + k] || []); }
+    const turnMs = m2(allW), steadyMs = m2(allS), turnR = turnMs / Math.max(1e-6, steadyMs);
+    const wFin = wCircle.filter(isFinite);
+    const wLo = wFin.length ? Math.min.apply(null, wFin) : NaN, wHi = wFin.length ? Math.max.apply(null, wFin) : NaN;
+    const wSpread = wLo > 0 ? wHi / wLo : NaN;
+    /* The ORDER effect, priced instead of argued. The sweep visits headings in a shuffled order, which
+     * removes any systematic pairing of a heading with a transition, but it does not remove a drift that
+     * belongs to the round itself. Split every sweep sample by where in its round's visit order it ran. */
+    const h1 = [], h2 = [];
+    for (let k = 0; k < S; k++) {
+      const v = a['c' + k] || [], p = cat(posat, k);
+      for (let i = 0; i < v.length; i++) { if (p[i] === undefined) continue; (p[i] < S / 2 ? h1 : h2).push(v[i]); }
+    }
+    const ord1 = m2(h1), ord2 = m2(h2), ordR = ord1 / Math.max(1e-6, ord2);
+    /* ONE POSE, TWO WINDOWS. Heading 0 of the circle IS the dealt pose (the sweep starts at `dealt` and
+     * steps by 0), so it is the same frame the `dealt` and `hold` arms time - but the circle samples it
+     * through M frames per arm and the named arms through N. If ms/frame depends on how many frames a
+     * sample averages, the two halves of this read are not comparable in absolute ms and the sweep's
+     * figures cannot be set beside the dealt/pinned ratio. This prices that instead of leaving it to the
+     * reader, and it is what made an earlier round of this issue compare a 4-frame window to a 24-frame
+     * one and call the difference a bearing. */
+    const winSame = m2(a.c0), winR = winSame / Math.max(1e-6, dms);
+    /* frames PER SAMPLE in each half of this read - the two halves are allowed to differ, and when they do
+     * no absolute ms/frame may be compared across them (#728: an earlier round set a 4-frame circle window
+     * beside 12-frame arms and called the difference a bearing). */
+    const winM = +o.yawFrames || 3, winN = +o.frames || 4;
     console.log('COST L' + r.level + ' ' + r.name + ' seat ' + r.p.x.toFixed(2) + ',' + r.p.y.toFixed(2) +
       ' dealt ' + dealt.toFixed(3) + ' rad (' + (differs ? 'a turned seat' : 'the pinned heading itself') +
-      ')  dealt ' + dms + '  pinned ' + pms + '  up ' + ums + ' ms/frame | dealt/pinned ' + ratio.toFixed(2) +
-      'x, turned up ' + upR.toFixed(2) + 'x, yaw circle ' + lo.toFixed(2) + '-' + hi.toFixed(2) + 'x  [' +
-      r.tier + '/' + r.gfx + ' ' + r.buf.join('x') + ', layout ' + r.layout + ', ' + a.dealt.length + ' round(s)' +
-      (differs ? '' : ', IDENTITY SPREAD ' + ratio.toFixed(2) + 'x' + (Math.abs(ratio - 1) <= ID_TOL ? '' : ' DRIFT')) + ']');
+      ')  dealt ' + dms + '  pinned ' + pms + '  up ' + ums + '  hold ' + hms + ' ms/frame | dealt/pinned ' + ratio.toFixed(2) +
+      'x, turned up ' + upR.toFixed(2) + 'x, one pose twice ' + idR.toFixed(2) + 'x, yaw circle ' + S + ' headings '
+      + lo.toFixed(2) + '-' + hi.toFixed(2) + ' ms/frame, spread ' + spread.toFixed(2) + 'x  [' +
+      r.tier + '/' + r.gfx + ' ' + r.buf.join('x') + ', layout ' + r.layout + ', ' + a.dealt.length + ' round(s), headings visited in a fresh seeded order every round' +
+      (Math.abs(idR - 1) <= ID_TOL ? '' : ', IDENTITY DRIFT ' + idR.toFixed(2) + 'x') + ']');
+    console.log('COST L' + r.level + '   THE TURN ITSELF: the first frame after a re-pose costs ' + turnMs.toFixed(2)
+      + ' ms/frame against ' + steadyMs.toFixed(2) + ' for the frames that follow it (' + allW.length
+      + ' re-pose frames timed beside ' + allS.length + ' held ones), ' + turnR.toFixed(2)
+      + 'x (' + (turnR >= 1.15 ? 'a player mid-turn pays this on EVERY frame until the hand stops; the held-frame '
+        + 'numbers above understate what a sweep costs' : 'turning is free: a frame in which the view changed costs '
+        + 'what a frame in which it did not, so what this circle ranks is held-frame geometry')
+      + '). The turn term by heading spans ' + wLo.toFixed(2) + '-' + wHi.toFixed(2) + ' ms, ' + wSpread.toFixed(2)
+      + 'x, where the HELD term spans ' + lo.toFixed(2) + '-' + hi.toFixed(2) + ' ms, ' + spread.toFixed(2) + 'x.\n'
+      + '   ONE POSE, TWO WINDOWS: heading 0 of the circle IS the dealt pose, timed here through '
+      + winM + ' frames per sample and by the dealt arm through ' + winN + ' - ' + winSame.toFixed(2)
+      + ' against ' + dms.toFixed(2) + ' ms/frame, ' + winR.toFixed(2) + 'x for the SAME frame. '
+      + (winSame > 0 && winR >= 1 - ID_TOL && winR <= 1 + ID_TOL
+        ? 'The two windows price one identical frame the same, so this read\'s ms/frame is window-insensitive '
+          + 'at these two widths and arms timed through either one may be compared.'
+        : winM === winN
+          // equal windows: whatever is left is NOT a window effect, and saying so is the whole point
+          ? 'Both halves used the SAME window (' + winN + ' frames), so this gap is not a window effect at '
+            + 'all: one pose read ' + (winR < 1 ? 'cheaper' : 'dearer') + ' in the sweep than in the named-arm '
+            + 'loop is a POSITION effect - the circle runs after the arms, and a run that is cheaper (or '
+            + 'dearer) later in itself puts every absolute ms in this read at the mercy of where in the run it '
+            + 'was taken. Only terms paired inside ONE sample - the turn term above, the slot-trading pair '
+            + 'below - are free of it; ratios across the two halves are not. '
+          : 'A sample that costs ' + (winR < 1 ? 'less' : 'more') + ' the fewer frames it averages is a sample '
+            + 'whose cost ' + (winR < 1 ? 'RISES' : 'FALLS') + ' across it, so no absolute ms in this read may '
+            + 'be set beside another arm\'s unless the two used the same window; ratios inside one window still '
+            + 'mean what they say.')
+      + '\n'
+      + '   Visit-order control: the first half of each round\'s visit order costs ' + ord1.toFixed(2)
+      + ' ms/frame and the second half ' + ord2.toFixed(2) + ' (ratio ' + ordR.toFixed(2)
+      + 'x) - a round that drifts during itself can put a heading at the top of the table with no bearing '
+      + 'behind it, which is what the pair below is for.');
+    if (spread < YAW_FLAT) continue;
+    const wr = v => ((v % (2 * Math.PI)) + 3 * Math.PI) % (2 * Math.PI) - Math.PI;
+    /* PAIRED, not a difference of medians. `b_hi` and `b_lo` are one sample per round and the two trade
+     * slots every round, so a cost that belongs to the SLOT - which half of the round you ran in -
+     * cancels in the per-round difference and survives a difference of medians. With an odd round
+     * count it survives the difference of medians badly: three of five rounds put one heading first and
+     * the median of each arm then reports the slot, not the heading, which is exactly what the first
+     * 16-heading read of #728 did (its pair came back NEGATIVE in all four sectors, -16.8 to -29.3 ms,
+     * while the sweep it was meant to confirm had come back positive by 44-56 ms). */
+    const pr = (a.b_hi || []).map((v, i) => v - (a.b_lo || [])[i]);
+    const bhi = med(a.b_hi), blo = med(a.b_lo);
+    const gap = pr.length ? pr.reduce((s, v) => s + v, 0) / pr.length : 0;
+    const sgap = hi - lo;                                  // what the sweep claimed the gap was
+    /* The FLOOR, pooled. Every nil_* sample below is the SAME frame - the shipped one at one of the two
+     * headings - so all of one heading's inert samples are estimates of one quantity and belong in ONE
+     * median over arms x rounds. Taken per arm the floor was as noisy as the gap it subtracts: one sector
+     * put the eight inert paired gaps at 3.2-34.7 ms and the arm beside the 34.7 read "159% closed". That
+     * is a subtraction of two noisy numbers, not a result. Pooled, the same samples give one floor per
+     * sector with 8x the samples behind it; the per-arm paired gaps stay, but only as the noise band they
+     * are. (#936 review: an inert switch read the same closure as the two shadow arms that moved the page.) */
+    const nilHiA = [], nilLoA = [], armFloors = [];
+    for (const p of PASS_AB) {
+      const nh = a['nil_' + p[0] + '_hi'] || [], nl = a['nil_' + p[0] + '_lo'] || [];
+      nilHiA.push.apply(nilHiA, nh); nilLoA.push.apply(nilLoA, nl);
+      nilAll.hi.push.apply(nilAll.hi, nh); nilAll.lo.push.apply(nilAll.lo, nl);
+      if (nh.length) nilSlot.hi.push(med(nh));      // ONE number per arm: the shipped frame as this slot
+      if (nl.length) nilSlot.lo.push(med(nl));      // of the ablation loop timed it
+    }
+    const ctlGap = (nilHiA.length && nilLoA.length) ? med(nilHiA) - med(nilLoA) : NaN;
+    const ab = PASS_AB.map(p => {
+      const q = (a[p[0] + '_hi'] || []).map((v, i) => v - (a[p[0] + '_lo'] || [])[i]);
+      const g = q.length ? q.reduce((s2, v) => s2 + v, 0) / q.length : NaN;
+      /* The INERT control beside this arm: the same switch armed the same way with the value the page
+       * already holds, so the picture is the shipped one. closed is (floor - off) / gap, NOT (b-pair -
+       * off) / gap: the latter credits an arm with the milliseconds the run spent between its two loops,
+       * which is how a switch that changes nothing closed 59-64% of a 47 ms gap in review (#936). A
+       * missing control is vacuity, not a zero. */
+      const nq = (a['nil_' + p[0] + '_hi'] || []).map((v, i) => v - (a['nil_' + p[0] + '_lo'] || [])[i]);
+      const ng = nq.length ? nq.reduce((s2, v) => s2 + v, 0) / nq.length : NaN;
+      armFloors.push(ng);
+      return { name: p[0], gap: g, armFloor: ng, floor: ctlGap,
+        closed: (gap > 0.5 && isFinite(ctlGap)) ? (ctlGap - g) / gap : 0 };
+    }).filter(x => (a[x.name + '_hi'] || []).length && isFinite(x.gap));
+    const noCtrl = ab.filter(x => !isFinite(x.armFloor)).map(x => 'L' + r.level + ' ' + x.name);
+    ctlBad.push.apply(ctlBad, noCtrl);
+    const floors = armFloors.filter(isFinite);
+    if (isFinite(ctlGap)) ctlFloors.push(ctlGap);
+    if (floors.length) ctlSpread.push(Math.max.apply(null, floors) - Math.min.apply(null, floors));
+    /* The identity control for the ablation loop, built from what it already times. Every nil_* sample IS
+     * the shipped frame, and the eight arms' controls are spread across the loop's slots, so the ratio
+     * between the dearest and cheapest of them is the timer's own spread INSIDE the loop that decides
+     * which pass pays - the thing `hold` prices for the named arms and the `one pose twice` column
+     * reports. It costs no extra ticks: it is the same samples, grouped. */
+    /* A control has to reproduce the gap it is being subtracted from. If every inert sample of the
+     * ablation loop prices the two headings at the SAME money while the sweep and the b-pair say they
+     * differ by 37 ms, the gap is simply not there any more by the time this loop runs - the run got
+     * cheaper (measured on a 2-round config: the FIRST nil pair read 43 ms, the next seven read 0.6-2.0,
+     * and the same pose also read 63.79 ms in the named-arm loop against 25.14 in the later sweep). Then
+     * (floor - off) / gap is arithmetic on a term the run no longer contains, and the biggest closure on
+     * the line is where in the loop the arm sat. Say so and refuse to attribute from this sector: an
+     * unpriced sector is honest, a 98% closure made of drift is a fake result (#936 review). */
+    const ctlOk = isFinite(ctlGap) && ctlGap >= 0.5 * gap && ctlGap <= 1.8 * gap;
+    const held = gap >= Math.min(4, 0.25 * sgap), swapped = gap <= -0.25 * sgap;
+    if (held) pairHeld++; else if (swapped) { pairSwap++; swapList.push('L' + r.level); } else pairFlat++;
+    console.log('COST L' + r.level + '   ms/frame by heading: ' + circle.map((v, k) =>
+      wr(dealt + k * 2 * Math.PI / S).toFixed(2) + ':' + v.toFixed(1)).join('  ')
+      + '\n   the heading that pays is ' + wr(dealt + r.iHi * 2 * Math.PI / S).toFixed(3) + ' rad at '
+      + hi.toFixed(2) + ' ms against ' + lo.toFixed(2) + ' at ' + wr(dealt + r.iLo * 2 * Math.PI / S).toFixed(3)
+      + '; sprites drawn ' + r.hiSpr + ' vs ' + r.loSpr + '.\n   RE-TIMED as a PAIR that trades slots every '
+      + 'round, paired difference of the two arms (a slot cost cancels in it; the two medians alone are '
+      + bhi.toFixed(2) + '/' + blo.toFixed(2) + ' and are NOT the estimate): ' + gap.toFixed(2)
+      + ' ms against the sweep\'s ' + sgap.toFixed(2) + ' -\u003e ' + (held
+        ? 'the slow heading of the sweep is still slow beside the fast one: this is a bearing in the level'
+        : swapped
+          ? 'the two extremes SWAPPED places: what the sweep ranked was the visit, not the bearing'
+          : 'the two extremes are the SAME PRICE beside each other: the sweep spread, the pair does not')
+      + (held ? '.\n   Pass split at the two extremes (gap ' + gap.toFixed(2) + ' ms, and nothing off -> gap '
+        + (isFinite(ctlGap) ? ctlGap.toFixed(1) + ' ms' : 'NOT TIMED') + ' for the ' + floors.length
+        + ' inert control(s) run beside these arms' + (floors.length > 1 ? ', spread '
+          + (Math.max.apply(null, floors) - Math.min.apply(null, floors)).toFixed(1) + ' ms' : '')
+        + '): '
+        + ab.map(x => x.name + ' off -> gap ' + x.gap.toFixed(1) + ' ms, '
+          + (isFinite(x.armFloor) ? x.armFloor.toFixed(1) + ' nothing, ' : 'NO CONTROL, ')
+          + (100 * x.closed).toFixed(0) + '% closed').join(', ')
+        + (ctlOk ? '' : '\n   BUT THIS LINE PRICES NOTHING: the inert controls here land at ' + ctlGap.toFixed(1)
+          + ' ms of paired gap while this seat\'s own pair is ' + gap.toFixed(1) + ' ms, so by the time the '
+          + 'ablation loop ran the two headings cost the SAME money and there is no gap left to close. '
+          + 'Every % above is then a share of drift, not of a pass, and this sector attributes NOTHING '
+          + 'below. Raise --frames and --rounds so the run is warm and steady before it ablates.')
+      : '.\n   No pass is named here: the sweep\'s two extremes do not reproduce as a gap when they are '
+        + 'timed beside each other, so there is nothing to attribute.')
+      );
+    if (held && ctlOk) {
+      attributed++;
+      for (const x of ab) {
+        if (!worst || x.closed > worst.closed) worst = Object.assign({}, x, { level: r.level, seatGap: gap });
+        (abAll[x.name] = abAll[x.name] || []).push({ level: r.level, closed: x.closed, gap: gap });
+      }
+      /* Every arm on this line claims a share of ONE gap. Five shares that sum past a whole gap is
+       * arithmetic that cannot be additively true, and it is what the #936 review found (farband 54,
+       * glow 60, bloom 57, decals 55, shadows 67 of one 48 ms gap). With the control subtracted the
+       * same claim should come down; if it still sums past 1.3 the row over-attributes and the reader
+       * has to be told, because the closing sentence names only the biggest one. A sector whose own
+       * control says the gap is gone is EXCLUDED here, not counted: a share of drift cannot sum to an
+       * over-attribute, and a census about a refused sector is a census about nothing. */
+      ctlSum.push({ level: r.level, sum: ab.reduce((s, x) => s + x.closed, 0), n: ab.length,
+        floor: isFinite(ctlGap) ? ctlGap : NaN, gap: gap });
+    }
   }
   if (page.pageErrors.length) console.log('NOTE page exceptions: ' + page.pageErrors.slice(0, 3).join(' | '));
   if (!ident) {
-    console.log('LIVECOST no sector sat at the pinned heading, so nothing here checked the timer against ' +
-      'itself - no ratio below means anything. FAILURE, not a clean bill.');
+    console.log('LIVECOST nothing was timed, so the timer was never checked against itself - no ratio '
+      + 'below means anything. FAILURE, not a clean bill.');
     process.exitCode = 1;
     return rows;
   }
@@ -664,6 +1086,155 @@ async function cost(o) {
     'x that would put a player-visible swing behind the harness ratio (tools/view.js `seat price`). ' +
     (swung ? 'The swing reaches the frame.' : 'The swing does not reach the frame: the harness prices a ' +
       'buffer, the player gets this.'));
+  const S0 = (rows.find(r => !r.error) || { S: 8 }).S;
+  /* Was `ab.length` read here, a const declared INSIDE the per-sector loop: on any sweep that was not
+   * flat the closing verdict row threw `ReferenceError: ab is not defined` and livecap cost exited 1
+   * without ever printing a verdict - which is exactly the config #728 is about, so the read regressed
+   * on the path it exists to measure (#933 review, falsified by deleting only that token). Hoisted. */
+  const abRan = rows.some(r => !r.error && (r.arms.farband_hi || []).length);
+  /* The two shadow-half arms are switched by ASSIGNING a renderer global from the page's global scope
+   * (see PASS_AB). If that assignment cannot see the binding - a renamed `let`, a build where the name is
+   * gone - every sample of those arms is a sample of the SHIPPED frame and the row would read "shbuild off
+   * -> 0% closed" as if it had tested something. Say which switch never armed instead. (#933 left the same
+   * shape of hole with `--passes 0`; AGENTS.md: a row that has never been able to fail is not a row.) */
+  const rawBad = rows.filter(r => !r.error && (r.rawErr || []).length).map(r => 'L' + r.level + ' ' + r.rawErr.join(','));
+  if (rawBad.length)
+    console.log('LIVECOST the raw pass switches did NOT arm in ' + rawBad.length + ' sector(s) (' + rawBad.join('; ') +
+      '): those arms timed the shipped frame, so their rows below say NOTHING about the pass they name. '
+      + 'Vacuity is a FAILURE, not a debt.');
+  /* Object.assign({level, gap}, x) used to let x's OWN gap overwrite the seat's, so the sentence that
+   * reads "closes N% of that seat's G ms heading gap" printed G as the ablated residual - 1.9 ms shown for
+   * an 11.2 ms gap. seatGap carries the seat's figure and is applied LAST so x cannot overwrite it. */
+  /* The inert control is the denominator's floor. If an arm was timed without one there is nothing to
+   * subtract, its `closed` is the bare difference the review showed to be position, and printing it
+   * beside real controls would let a row about the run masquerade as a row about a pass. */
+  if (ctlBad.length)
+    console.log('LIVECOST ' + ctlBad.length + ' arm(s) were timed with NO inert control beside them (' +
+      ctlBad.slice(0, 8).join(', ') + (ctlBad.length > 8 ? ', ...' : '') + '): their % closed is a bare '
+      + 'difference of two loops and is NOT a price. Vacuity is a FAILURE, not a debt.');
+  if (ctlFloors.length)
+    console.log('LIVECOST the inert controls - every one of them switching NOTHING - land at a median '
+      + median(ctlFloors).toFixed(1) + ' ms of paired gap (' + ctlFloors.length + ' sector(s), one pooled '
+      + 'figure each), and '
+      + (ctlSpread.length ? 'spread ' + median(ctlSpread).toFixed(1) + ' ms WITHIN one sector across the '
+        + 'arms on the line' : 'were run') + '. That figure is this run\'s floor: it is what an arm reads '
+      + 'when it changes nothing, so every % closed above is measured as (that floor - the arm) over the '
+      + 'seat\'s own paired gap, not as (the b-pair - the arm). '
+      + (median(ctlSpread) > 4 ? 'The within-sector spread is over 4 ms, so the floor itself wobbles by a '
+        + 'real fraction of the gap and the small closures are inside it - raise --rounds.'
+        : 'The floor is flat across the arms, so a closure above a few percent is the switch, not the slot.')
+      + (nilSlot.hi.length > 2 ? '\n   ONE SHIPPED FRAME, EVERY SLOT: the ' + nilSlot.hi.length + ' inert '
+        + 'hi-heading samples and ' + nilSlot.lo.length + ' inert lo-heading samples are all the SAME frame,'
+        + ' timed one slot apart across the loop. Their own medians are ' + med(nilAll.hi) + ' and '
+        + med(nilAll.lo) + ' ms/frame, and the ' + nilSlot.hi.length + ' per-arm medians beside them span '
+        + (Math.max.apply(null, nilSlot.hi) / Math.max(1e-6,
+          Math.min.apply(null, nilSlot.hi))).toFixed(2)
+        + 'x at the slow heading and ' + (Math.max.apply(null, nilSlot.lo) / Math.max(1e-6,
+          Math.min.apply(null, nilSlot.lo))).toFixed(2)
+        + 'x at the fast one. That is the timer\'s spread inside the ablation loop itself - the noise band '
+        + 'every % closed on this read sits in, timed against nothing switched at all.' : ''));
+  if (ctlSum.length)
+    console.log('LIVECOST additivity: the arms on one line claim shares of the SAME gap and they sum to '
+      + ctlSum.map(x => 'L' + x.level + ' ' + (100 * x.sum).toFixed(0) + '%').join(' ') +
+      (ctlSum.every(x => x.sum <= 1.3)
+        ? ' - within one gap plus the noise, so the shares are allowed to overlap and the named pass is '
+          + 'a share, not the whole swing.'
+        : ' - PAST one gap. Two switches cannot each pay for milliseconds the other already paid for, so '
+          + 'this line over-attributes: the terms ablate overlapping work (an off ground pass makes the '
+          + 'wall pass cheaper too), and naming one pass as "where the milliseconds are" would be naming '
+          + 'a share the row cannot add up to.'));
+  const abNames = Object.keys(abAll);
+  const abMed = abNames.map(n => ({ name: n, closed: median(abAll[n].map(x => x.closed)),
+    at: abAll[n].map(x => 'L' + x.level + ' ' + (100 * x.closed).toFixed(0) + '% of ' + x.gap.toFixed(1)).join(', ') }))
+    .sort((p, q) => q.closed - p.closed);
+  /* A sweep spread is not yet a bearing. The pair of extremes is timed a second time trading slots every
+   * round, and the PAIRED difference of those two arms is what says whether the sweep found a direction
+   * that costs more or found the turn itself: `pairHeld` counted the sectors where the slow heading of
+   * the sweep is still slow beside the fast one. On the deployed build at seed 60 all four sectors came
+   * back the other way (pairSwap), which is the answer #728 asked for: the ~4x is what a re-pose costs,
+   * in every direction, not what one direction costs. */
+  /* The turn term, over all sectors: what the hand pays while it is moving. This used to read
+   * warm.dealt, which is NOT a turn: in the rotating arm loop the sample before a dealt sample is
+   * `hold`, and hold IS the dealt pose, so that figure was a held frame called a turn (and the park
+   * arm below is what replaces it). `turn` parks the camera a quarter turn away, untimed, and times
+   * the first frame back at the dealt seat against N held frames at that same seat in the same call. */
+  const tw = rows.filter(r => !r.error && r.warm && (r.warm.turn || []).length).map(r => med(r.warm.turn)),
+    ts = rows.filter(r => !r.error && (r.arms.turn || []).length).map(r => med(r.arms.turn));
+  if (tw.length && ts.length) {
+    const tr = median(tw) / Math.max(1e-6, median(ts));
+    /* the park must not leak: arms.turn times the dealt pose exactly as the dealt arm does, so if the
+     * quarter-turn detour is still being paid for in the HELD term these two disagree and the turn
+     * figure is a park artefact, not a price. Same tolerance as the identity check. */
+    const leak = rows.filter(r => !r.error && (r.arms.turn || []).length && (r.arms.dealt || []).length)
+      .map(r => med(r.arms.turn) / Math.max(1e-6, med(r.arms.dealt)));
+    const lk = median(leak), lkBad = Math.abs(lk - 1) > ID_TOL;
+    const tRounds = (rows.find(r => r.warm && (r.warm.turn || []).length) || { warm: { turn: [] } }).warm.turn.length;
+    console.log('LIVECOST turning at a stationary seat costs ' + median(tw).toFixed(2) + ' ms for the frame that '
+      + 'turns against ' + median(ts).toFixed(2) + ' ms for a frame that holds - ' + tr.toFixed(2)
+      + 'x, paired inside one sample and taken from a camera parked a quarter turn away first (' + tw.length
+      + ' sector(s) x ' + tRounds + ' round(s); the park control reads ' + lk.toFixed(2)
+      + 'x against the dealt arm' + (lkBad ? ' - THAT PARK IS LEAKING PAST THE SETTLE, so this turn figure is an '
+        + 'artefact of the detour and means nothing: raise --frames.' : ', so the detour is paid for in the '
+        + 'turn frame and in that frame only') + '.) '
+      + (tr >= 1.15 || lkBad
+        ? 'So a sweep of the room is NOT held frames averaged: every frame the hand is moving pays a re-pose '
+          + 'the settled numbers above never time. That is the hitch #728 describes, and it is a cost of '
+          + 'TURNING, not of any direction.'
+        : 'So the frame a turning player gets is the frame a held camera gets: the circle above is the whole '
+          + 'story, and there is no separate re-pose cost to name. The conclusion merged from #932 - that the '
+          + '~4x is what a re-pose costs in every direction - is not supported either: a re-pose that costs '
+          + 'nothing is not where the milliseconds are.'));
+  }
+  if (!paid) console.log('LIVECOST the yaw circle is FLAT: every sector read turned a full circle at ' + S0
+    + ' headings, each round visiting them in a fresh seeded order, and the worst heading stayed under '
+    + YAW_FLAT.toFixed(2) + 'x the fastest at a HELD camera. A coarse scan that printed a wide swing was '
+    + 'measuring the scan - a slot in the round - not a bearing in the level.');
+  else if (pairHeld === 0) {
+    const how = pairSwap ? pairSwap + ' of them swapped places' : pairFlat + ' of them came back the same price';
+    console.log('LIVECOST the yaw circle spreads but prices NOTHING: ' + paid + ' of ' + (paid + flatN)
+      + ' sector(s) read ' + S0 + ' headings at or over ' + YAW_FLAT.toFixed(2) + 'x apart at a HELD camera '
+      + '(one pose twice within ' + ID_TOL.toFixed(2) + 'x, so the timer is steady), and in ' + how + ' ('
+      + swapList.join(' ') + ') the moment the two extremes were timed beside each other with the pair '
+      + 'trading slots every round. A heading that costs more only when it is never compared with anything '
+      + 'is not a heading: what the scan measured is the cost of SAMPLING, not of a direction, so no pass '
+      + 'is named and no bearing is priced. The circle is FLAT in the only sense a player can check: which '
+      + 'way you face does not change what a frame costs. Note this row no longer blames the TURN either: '
+      + 'the re-pose term above times the frame in which the view changes beside the frames after it in the '
+      + 'same sample, and on the build that was read it came back the CHEAPER one, so "the ~4x is what a '
+      + 're-pose costs in every direction" (the conclusion merged from #932) is not supported by this read '
+      + 'and the milliseconds belong somewhere else.');
+  }
+  else console.log('LIVECOST the yaw circle is NOT flat: ' + paid + ' of ' + (paid + flatN)
+    + ' sector(s) spread at or over ' + YAW_FLAT.toFixed(2) + 'x across one slow turn at a held camera ('
+    + S0 + ' headings, a fresh seeded visit order every round, ' + pairHeld + ' of them keeping the '
+    + 'gap when the pair was re-timed beside each other, one pose twice within ' + ID_TOL.toFixed(2)
+    + 'x) - a hitch in the hand while a player sweeps a room. '
+    + (!abRan
+      ? 'No pass ablation ran (--passes 0), so NOTHING here is attributed to a pass: the gap is measured, '
+        + 'not explained. Re-run without --passes 0 to name one.'
+      : abMed.length && abMed[0].closed > 0.25
+      ? 'The pass that pays is ' + abMed[0].name + ': turning it off closes a MEDIAN '
+        + (100 * abMed[0].closed).toFixed(0) + '% of the heading gap across the ' + abAll[abMed[0].name].length
+        + ' seat(s) whose pair held (' + abMed[0].at + ' ms), so that pass is where the swing lives; the '
+        + 'rest is the cost of the geometry. No single switch pays everywhere - the spread across seats is '
+        + 'the next thing to price.'
+      : worst && worst.closed > 0.25
+      ? 'One seat only: ' + worst.name + ' off at L' + worst.level + ' closes '
+        + (100 * worst.closed).toFixed(0) + '% of that seat\'s ' + worst.seatGap.toFixed(1)
+        + ' ms heading gap, but no pass clears a quarter of the gap across every seat, so no pass is named.'
+      : attributed === 0
+        // every sector refused: nothing was ever testable, which is NOT the same finding as "nothing pays"
+        ? 'NOTHING WAS ATTRIBUTABLE IN THIS RUN. ' + pairHeld + ' sector(s) held a heading gap when the two '
+          + 'extremes were re-timed beside each other, but in EVERY one the inert controls - switches handed'
+          + ' the value the page already holds - priced the two headings at the SAME money, so by the time '
+          + 'the ablation loop ran there was no gap left in the run to close and no switch was ever '
+          + 'testable. That is a property of THIS RUN (it went cold or cheap between the sweep and the '
+          + 'ablations), not of the build: it does NOT license "no pass pays", and the % closed figures '
+          + 'above are shares of drift. Raise --frames and --rounds until at least one sector clears its '
+          + 'own control.'
+        : 'No single switch closes a quarter of the gap at any of the ' + attributed
+          + ' attributable seat(s), so the swing is the geometry the eye contains - the wall columns and '
+          + 'ground rows a long sight line marches - not one pass that can be turned off.'));
   return rows;
 }
 
@@ -716,6 +1287,70 @@ function pairRead(dir, base) {
   if (r.cov && idn && idn.cov) { if (!(r.cov.delta > idn.cov.delta)) r.noisy = true; }
   else if (!r.cov && idn && r.n <= idn.n) r.noisy = true;
   return { r, idn, k };
+}
+
+/* One pickup read. `own` and `park` are K-frame means of the two arms of ONE load; `own2` is the second
+ * half of the own arm, the identity control (#611's rule: a mask that the load disagrees about by itself
+ * is weather, not the object). The mask is the pixels the two arms disagree about by more than the same
+ * summed-|dRGB| 18 the fg read uses, MINUS the minimap box: js/40_render.js:6203 draws a 3-unit dot for
+ * every explored pickup, so parking the kits also erases ink in the top-right panel, and that ink is not
+ * the object standing in the room. Everything else - the deck mean, the share at or above 200 - is read
+ * over the mask in the own arm, which is the delivered frame, not a model of it.
+ *
+ * `box` splits that mask in two, and the split is the whole point of the second pass at this row. A
+ * difference mask answers the question "what did the kit CHANGE", which is the kit's faces PLUS every
+ * pixel it was hiding plus the bloom its shell throws. Measured on the Pages build at the L1 seat: 15235
+ * kept px whose own-arm mean is 6.99 luma DARKER than the parked arm - the far wall, not the tin. The
+ * loudness question #862 asks is about the object, so the pixels INSIDE the kit's projected extent are
+ * read as `in` and everything else as `out`; the deck and frame means are read over the whole delivered
+ * frame either way. */
+function pickupRead(dir, base, box) {
+  const own = armFiles(dir, base), park = armFiles(dir, base.replace('-pick', '-parked'));
+  if (own.length < ARMS * 2 || park.length < ARMS) return null;
+  const A = avgPNG(own.slice(0, ARMS)), A2 = avgPNG(own.slice(ARMS)), C = avgPNG(park.slice(0, ARMS));
+  const W = A.w, H = A.h, mmx = W * 0.76, mmy = H * 0.32, deck = H * 0.726;
+  const bx0 = box ? Math.max(0, box[0]) : 0, bx1 = box ? Math.min(W - 1, box[1]) : W - 1;
+  const by0 = box ? Math.max(0, box[2]) : 0, by1 = box ? Math.min(H - 1, box[3]) : H - 1;
+  let n = 0, dsum = 0, weather = 0, lsum = 0, lmax = 0, hot = 0, dsum2 = 0, bsum = 0;
+  let deckSum = 0, deckN = 0, frameSum = 0;
+  let ni = 0, li = 0, bi = 0, di = 0, ei = 0, hoti = 0, maxi = 0, no = 0, lo = 0, bo = 0;
+  let mx0 = 1e9, my0 = 1e9, mx1 = -1e9, my1 = -1e9;   // where the difference mask actually IS
+  let niAll = 0;                                    // d>18 inside the box BEFORE the identity filter
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = (y * W + x) * 3;
+    const L = LR * A.d[i] + LG * A.d[i + 1] + LB * A.d[i + 2];
+    frameSum += L;
+    if (y >= deck) { deckSum += L; deckN++; }
+    const d = Math.abs(A.d[i] - C.d[i]) + Math.abs(A.d[i + 1] - C.d[i + 1]) + Math.abs(A.d[i + 2] - C.d[i + 2]);
+    const e = Math.abs(A.d[i] - A2.d[i]) + Math.abs(A.d[i + 1] - A2.d[i + 1]) + Math.abs(A.d[i + 2] - A2.d[i + 2]);
+    if (d > 18 && x >= bx0 && x <= bx1 && y >= by0 && y <= by1) niAll++;
+    if (e > 18) { weather++; continue; }          // this load disagrees about this pixel with ITSELF
+    if (d <= 18 || (x >= mmx && y <= mmy)) continue;
+    n++; dsum += d; dsum2 += e;
+    if (x < mx0) mx0 = x; if (x > mx1) mx1 = x; if (y < my0) my0 = y; if (y > my1) my1 = y;
+    const bL = Math.max(0, LR * C.d[i] + LG * C.d[i + 1] + LB * C.d[i + 2]);
+    bsum += bL;
+    lsum += L; if (L > lmax) lmax = L; if (L >= 200) hot++;
+    if (x >= bx0 && x <= bx1 && y >= by0 && y <= by1) {
+      ni++; li += L; bi += bL; di += d; ei += e; if (L >= 200) hoti++; if (L > maxi) maxi = L;
+    } else { no++; lo += L; bo += bL; }
+  }
+  if (!n) return { n: 0, frame: +(frameSum / (W * H)).toFixed(2), deck: +(deckSum / Math.max(1, deckN)).toFixed(2) };
+  return {
+    n, buf: W * H, frame: +(frameSum / (W * H)).toFixed(2), deck: +(deckSum / deckN).toFixed(2),
+    own: +(lsum / n).toFixed(2), max: Math.round(lmax), hot: +(100 * hot / n).toFixed(2),
+    bg: +(bsum / n).toFixed(2), step: +((lsum - bsum) / n).toFixed(2),
+    delta: +(dsum / n).toFixed(2), idDelta: +(dsum2 / n).toFixed(2), weather,
+    noisy: !(dsum / n > dsum2 / n),
+    /* inside the kit's own projected extent, and everything the difference adds to it */
+    ni, niAll, boxArea: (bx1 - bx0 + 1) * (by1 - by0 + 1),
+    inOwn: ni ? +(li / ni).toFixed(2) : null, inBg: ni ? +(bi / ni).toFixed(2) : null,
+    inStep: ni ? +((li - bi) / ni).toFixed(2) : null, inHot: ni ? +(100 * hoti / ni).toFixed(2) : null,
+    inMax: ni ? Math.round(maxi) : null, inDelta: ni ? +(di / ni).toFixed(2) : null,
+    inId: ni ? +(ei / ni).toFixed(2) : null,
+    outOwn: no ? +(lo / no).toFixed(2) : null, outBg: no ? +(bo / no).toFixed(2) : null,
+    bbox: n ? [mx0, mx1, my0, my1] : null
+  };
 }
 
 async function cap(o) {
@@ -887,16 +1522,29 @@ async function main() {
   if (cmd === 'cap' || cmd === 'both') {
     const levels = (arg('levels', arg('level', '0,1,2,3')) + '').split(',').map(Number);
     const shots = [];
+    /* --pose takes the ARGUMENTS of DEV.cam as written in an issue's own repro block, so "take the
+       frame this issue asks for" is one command rather than a transcript. Same load, same freeze,
+       same shutter as every other shot; only the seat comes from the page's repro notes instead of
+       from the deal. An issue's pose is the seat its defect was reported at, which is the seat a
+       dealt arrival will not necessarily visit - #517's two (on the band, and on the deck under it)
+       are both seats the deal never hands the player. */
+    const pose = arg('pose', '');
+    if (pose) {
+      for (const l of levels) shots.push({ name: arg('name', 'l' + l + '-pose'), level: l, cam: pose });
+      const rows = await cap({ url, out, shots, timeout: arg('timeout', 180), why: flag('why') });
+      for (const r of rows) if (r.error) process.exitCode = 1;
+      return;
+    }
     for (const l of levels) {
       if (cmd === 'both' || flag('body')) {
         if (cmd === 'both') {
           /* ONE load per sector, three arms, in the order that makes the mask the body: the body
              frame, then him removed, then the same frame again as the identity control. */
-          shots.push({ name: 'l' + l + '-body', clear: 'l' + l + '-clear', level: l, pair: true,
+          shots.push({ name: 'l' + l + '-body', clear: 'l' + l + '-clear', level: l, pair: true, turn: arg('turn', ''),
             body: { kind: arg('kind', l === 2 ? 'brute' : 'grunt'), dist: +arg('dist', 10) } });
         } else {
           shots.push({ name: 'l' + l + '-clear', level: l });
-          shots.push({ name: 'l' + l + '-body', level: l, body: { kind: arg('kind', l === 2 ? 'brute' : 'grunt'), dist: +arg('dist', 10) } });
+          shots.push({ name: 'l' + l + '-body', level: l, turn: arg('turn', ''), body: { kind: arg('kind', l === 2 ? 'brute' : 'grunt'), dist: +arg('dist', 10) } });
         }
       } else {
         shots.push({ name: 'l' + l + '-arrival', level: l });
@@ -936,8 +1584,9 @@ async function main() {
   if (cmd === 'cost') {
     /* kept separate from the usage text below so a reader who lands here sees what the flags mean */
     const levels = (arg('levels', '0,1,2,3') + '').split(',').map(Number);
-    await cost({ url, levels, frames: arg('frames', 24), yawFrames: arg('yawFrames', 8),
-      timeout: arg('timeout', 240) });
+    await cost({ url, levels, frames: arg('frames', 24), rounds: arg('rounds', 5),
+      yawFrames: arg('yawFrames', 8), yawSamples: arg('yawSamples', 8),
+      passes: arg('passes', '1') !== '0', timeout: arg('timeout', 240) });
     return;
   }
 
@@ -954,6 +1603,60 @@ async function main() {
     return;
   }
 
+  if (cmd === 'pickup') {
+    /* #862 Done-when 1 and 4: is a pickup the loudest object in the frame the deal hands the player, and
+     * does a build without the relight put the number back? Point --url at the deployed build for the
+     * first question and at a served copy of a falsifier js/ for the second; nothing else changes. */
+    const levels = (arg('levels', '0,1,2,3') + '').split(',').map(Number);
+    const shots = [];
+    for (const l of levels) shots.push({ name: 'l' + l + '-pick', clear: 'l' + l + '-parked', level: l, pickup: true });
+    const rows = await cap({ url, out, shots, timeout: arg('timeout', 240) });
+    let bad = 0;
+    for (let i = 0; i < shots.length; i++) {
+      const s = shots[i], r = rows[i] || {};
+      const p = pickupRead(out, s.name, r.pk && r.pk.box);
+      if (!r.pk || r.pk.why) { console.log('PICKUP L' + s.level + ' NOTHING TO MEASURE - ' + (r.pk ? r.pk.why : 'no arm ran')); bad++; continue; }
+      if (!p || !p.n) { console.log('PICKUP L' + s.level + ' VACUOUS - parking ' + r.pk.count + ' pickup(s) left no pixel the load also agrees about with itself: no kit is in this frame'); bad++; continue; }
+      /* An empty box is NOT raised to bad++ on purpose. The frame-wide vacuity floor MIN_KEEP_FRAC is the
+       * gate this row ships with and it is cleared here (15k px is an order over it): the mask is real and
+       * large, it is just not attributable to the tin, and a row that goes red on the build that ships
+       * without a fix in the same hand is a red CI, not a finding. The honesty lives in the printed line. */
+      const pp = p.ni ? '\n   WHERE THE DIFFERENCE ACTUALLY IS: ' + p.ni + ' of those ' + p.n + ' px fall inside the kit\'s own '
+        + 'projected extent ' + JSON.stringify(r.pk.box) + ' (' + p.inOwn + ' luma there, against ' + p.inBg + ' with the kit parked); the other '
+        + p.no + ' px sit in a box x ' + p.bbox[0] + '-' + p.bbox[1] + ', y ' + p.bbox[2] + '-' + p.bbox[3] + ' at ' + p.outOwn
+        + ' - the light pool the tin spills and the pixels it was hiding. Read the line above this one off the inside number.'
+        /* An EMPTY box is the interesting case, and it is the one this row shipped blind to. Parking a tin
+         * that the frustum does not contain still changes the frame, because the frame's own exposure term
+         * averages the whole room including that tin - so the difference lands on the BRIGHTEST pixels of
+         * the deck, the own arm comes out DARKER than the parked arm, and the row reads as a kit while it
+         * is measuring an exposure term. The census is where the level's live pickups actually are. */
+        : '\n   NOT A READ OF A PICKUP: ' + p.n + ' px change, NONE of them inside the kit\'s projected extent '
+        + JSON.stringify(r.pk.box) + ' - and before the identity filter ' + p.niAll + ' px of that box DID change, so where '
+        + 'a kit is in the frame the load refuses to agree about it with ITSELF and the identity floor is what removes it. '
+        + 'The surviving difference sits low and bright (x ' + p.bbox[0] + '-' + p.bbox[1] + ', y '
+        + p.bbox[2] + '-' + p.bbox[3] + ') where the first-person rig and the deck pool are'
+        + (r.pk.blind ? ' (and the chosen tin has geometry in the way of this camera)' : '')
+        + '. No loudness claim about a pickup can be made from this row.'
+        + (r.pk.list ? '\n   where the level\'s live pickups project (x -1 = not in the frustum): '
+          + r.pk.list.map(k => k.t + ' @' + k.d + 'm x' + k.x + ',y' + k.y + (k.los ? '' : ' [geometry in the way]')).join('   ') : '');
+      console.log('PICKUP L' + s.level + ' ' + r.pk.type + ' @ ' + r.pk.range + ' m' + (r.pk.turned ? ' (turned ' + r.pk.turned + ' rad to face it)' : '') +
+        ' own ' + p.own + ' luma mean over ' + p.n + ' of ' + p.buf + ' px (max ' + p.max + ', ' + p.hot + '% at or above 200)' +
+        ' against ' + p.bg + ' where the kit stands (' + p.step + ' of step), deck band ' + p.deck + ', whole frame ' + p.frame +
+        '\n   mask delta ' + p.delta + ' against ' + p.idDelta + ' between two halves of the OWN arm (' + p.weather +
+        ' of ' + p.n + ' px move that much on their own): ' + (p.noisy ? 'DOES NOT clear its own floor, not a measurement' : 'clears its own floor') +
+        (p.own < p.bg
+          ? '\n   NOT A SILHOUETTE: the kept pixels are ' + p.step + ' luma DARKER than the pixels they replaced, so this\n'
+            + '   mask is a wash around the kit, not the kit. Read the deck comparison only as a region average.'
+          : (p.own > p.deck ? ' - THE PICKUP IS LOUDER THAN THE DECK IT STANDS ON' : ' - quieter than the deck band it stands on')) + pp);
+      if (!flag('keep')) for (const f of armFiles(out, s.name).concat(armFiles(out, s.clear))) fs.unlinkSync(f);
+    }
+    console.log('LIVECAP-PICKUP ' + (levels.length - bad) + ' of ' + levels.length +
+      ' sector(s) measured the own pixels of a pickup off ' + url.replace(/\?.*/, '') + ' - ' + bad +
+      ' sector(s) vacuous or weather-bound, and those rows are not measurements.');
+    if (bad) process.exitCode = 1;
+    return;
+  }
+
   if (cmd === 'sweep') {
     const levels = (arg('levels', '0,1,2,3') + '').split(',').map(Number);
     await sweep({ url, levels, deals: +arg('deals', 12), seed: +arg('seed', 60), step: +arg('seedstep', 1013),
@@ -964,9 +1667,18 @@ async function main() {
   console.log([
     'usage:',
     '  node tools/livecap.js cap  --url <dev page> [--levels 0,1,2,3] [--dist 10] [--out DIR]',
+    '  node tools/livecap.js cap  --pose "11.5, 1.5, undefined, -Math.PI/2, 0.0" [--level 0] [--name shot]',
     '  node tools/livecap.js both --url <dev page> [--levels 0,1,2,3] [--dist 10] [--out DIR] [--why]',
     '  node tools/livecap.js fg   <with-body.png> <without.png>',
+    '  node tools/livecap.js both --url <dev page> [--dist 5] [--turn <rad>]',
+    '                              --turn rotates the EYE (DEV.look) AFTER the seat search has seated him,',
+    '                              so he sits off-axis or half outside the frame edge - the heading a slow',
+    '                              turn shows, and the seat #922 was reported from. atan(0.72) = 0.62 rad',
+    '                              is half the frustum at res 1.0, so that is the edge of vision.',,
+    '  node tools/livecap.js pickup --url <dev page> [--levels 0,1,2,3] [--out DIR] [--keep]',
     '  node tools/livecap.js cost [--url <dev page>] [--levels 0,1,2,3] [--frames 24] [--yawFrames 8]',
+    '                              [--yawSamples 8] [--passes 1]   yawFrames = FRAMES PER SAMPLE; the',
+    '                              circle heading count is --yawSamples, not --yawFrames (#728)',
     '  node tools/livecap.js sweep [--url <dev page>] [--levels 0,1,2,3] [--deals 12] [--seed 60] [--dist 10]',
     '',
     'sweep = #611 bullet 2 on the deployed build: 12 dealt rooms per level, one page load per deal (the',
