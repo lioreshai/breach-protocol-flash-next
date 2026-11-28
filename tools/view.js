@@ -4541,6 +4541,16 @@ if (MODE === 'vert') {
       const ek = MAP.ek, par = edgeBasins(MAP.cell);
       const pop = Object.create(null), pairs = Object.create(null), bad = Object.create(null);
       let none = 0, two = 0, tot = 0, disagree = 0, goButStops = 0, stopButGoes = 0, freeFall = 0, blind = 0, dropCliff = 0;
+      /* #421 THE GUARD CENSUS. An edge your FEET cross into a fall of more than one quantum is a
+         walk-off, and the maintainer's ruling on this issue is that such an edge is either guarded
+         (a rail or a wall) or it is a deliberate drop. Nothing authors EK_RAIL today, so every
+         walk-off on every shipped layout is unguarded, and the census that made that invisible is
+         the one that counted bands rather than edges: "8 bands, no guard" passed while the deck you
+         stand on had four open sides. The three counters below are the edge-shaped question: how
+         many sides can you walk off, how many of those carry a rail, and how many raised cells
+         exist at all - the last one is what stops a level with a storey reporting a clean sheet
+         because the census could not see the storey. */
+      let walkOff = 0, railEdge = 0, bandCells = 0, tallDrop = 0, blockedTall = 0;
       for (const k of ['ROOM','STEP','DROP','RAIL','CLIFF','COVERED','WALL']) pop[k] = 0;
       for (const p of ['ROOM/ROOM','STEP/STEP','CLIFF/DROP','CLIFF/CLIFF','RAIL/RAIL','COVERED/COVERED','WALL/WALL']) pairs[p] = 0;
       for (let i = 0; i < MW * MH; i++) {
@@ -4565,10 +4575,25 @@ if (MODE === 'vert') {
           if (can && MAP.fz[j] - MAP.fz[i] < -1 && par[i] !== par[j]) freeFall++;
           if (!walkable && !(k & EK_FACEQ) && k !== EK_WALL && k !== EK_COVERED) blind++;
           if (k === EK_CLIFF && MAP.fz[j] - MAP.fz[i] < 0) dropCliff++;
+          /* Directed, high side only: the fall's own crossing. STEP_Q is the same quantity the blocker,
+             the auto-step and the fall read (#634), so a one-quantum lip you step down is NOT a tall
+             drop and a rail there would be a new obstacle the feet never had. TALLDROP is the whole
+             population the guard rule speaks about; the three buckets after it must account for it
+             exactly, and a tall drop that lands in none of them is a census that is not reading the
+             byte it claims to read. */
+          if (MAP.fz[j] - MAP.fz[i] < -STEP_Q) {
+            tallDrop++;
+            if (k === EK_RAIL) railEdge++;                 // authored guard: it stops the feet, no fall
+            else if (can) walkOff++;                       // feet cross it: a walk-off, no obstacle
+            else blockedTall++;                            // a wall column or a cliff: guarded by height
+          }
         }
       }
+      for (let i = 0; i < MW * MH; i++) if (!MAP.cell[i] && MAP.fz[i] > 0) bandCells++;
       return { N: MW, tot: tot, pop: pop, pairs: pairs, none: none, two: two, disagree: disagree, goButStops: goButStops,
         stopButGoes: stopButGoes, freeFall: freeFall, blind: blind, dropCliff: dropCliff,
+        walkOff: walkOff, railEdge: railEdge, bandCells: bandCells, tallDrop: tallDrop, blockedTall: blockedTall,
+        tallStep: MAP.tallStep,
         sum: Object.values(pop).reduce((a, b) => a + b, 0), authored: LEVELS[${li}].authored ? 1 : 0,
         stamp: MAP.linkStamp };
     })()`, ctxVm);
@@ -4587,6 +4612,25 @@ if (MODE === 'vert') {
       `  nothing blocks while drawing nothing ${e.blind ? 'FAIL ' + e.blind : 'ok'}` +
       `${e.dropCliff ? '  (' + e.dropCliff + ' rim(s) reclassified CLIFF because the band below has no route back)' : ''}` +
       `  ${ok ? 'ok' : 'FAIL'}`);
+    /* #421 THE DECK EDGE YOU CAN WALK OFF. A separate verdict, deliberately not folded into `ok`
+       above: rails are not authored yet, so a red row here today would blame the renderer for a
+       missing author. It prints the population the ruling says made this invisible, and it has two
+       teeth. VACUITY is a FAILURE, not a debt: a tall drop that is neither walkable, nor a rail,
+       nor blocked is an edge the census did not read, and a row whose buckets do not sum to the
+       population it counted is the "answered by nobody" bug in the probe rather than the level.
+       The walk-off population is the named debt at the measured baseline and `STRICT=1` promotes it
+       into a gate, which is the row that goes green only when every tall edge carries an obstacle. */
+    const gStrict = !!process.env.STRICT;
+    /* The engine's OWN census says a multi-quantum riser exists on this grid. Such a riser has a high
+       side, and a high side is a tall drop, so a grid that says tallStep and shows the census NO tall
+       drop edge is a census that is not reading the byte it claims to read - a FAILURE, not a debt. */
+    const vac = e.tallStep === 1 && e.tallDrop === 0;
+    const gOk = !vac && e.walkOff === 0;
+    bad += gOk ? 0 : (vac || gStrict ? 1 : 0);
+    console.log(`    guard   ${e.tallDrop} tall drop edge(s): ${e.walkOff} you can walk off, ${e.railEdge} rail, ` +
+      `${e.blockedTall} blocked by a wall or cliff; ${e.bandCells} cell(s) on a raised band, tallStep ${e.tallStep}` +
+      (vac ? '  NO TALL DROP EDGE ON A GRID THAT HAS A TALL RISER FAIL' : '') +
+      `  ${gOk ? 'ok' : (vac ? 'FAIL' : (gStrict ? 'FAIL' : 'KNOWN #421 ' + e.walkOff + ' walk-off edge(s), no rail authored'))}`);
   }
   };
   /* ---- M3 step 2: the player has to OBEY the grid. No shipped level has a height or a ladder
