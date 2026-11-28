@@ -51,7 +51,7 @@ a byte claim written here is false by the next merge (#395). What *changed* betw
 in the PR that moved it, not here.
 
 `node tools/recap.js check` decodes the eight PNGs and fails if any number below disagrees with the
-bytes, so a caption cannot drift from its frame. The eight frames decode to **60.60 / 81.41 / 60.60 / 65.89 / 65.01 / 70.33 / 66.92 / 63.60** mean luma
+bytes, so a caption cannot drift from its frame. The eight frames decode to **60.60 / 81.41 / 60.60 / 65.89 / 65.01 / 71.55 / 66.92 / 63.60** mean luma
 (`0.2126 R + 0.7152 G + 0.0722 B`, the rule `DEV.lum` uses), in the order they appear below. A dark
 row below means a row whose own mean luma is under 24 — the threshold the tool measures at, whatever
 number a sentence labels. The same command subtracts, frame by frame, the mean of the frame each one
@@ -65,27 +65,34 @@ the bind hashes have moved since these frames were last taken, and three of them
 `js/40_render.js` (#941); `js/00_core.js` and `js/90_dev.js` moved with that ramp's own switch and carry no pixel. The
 arbiter came back `FRAME-MOVED` instead of `FRAME-EQUIV`, so all eight poses were re-run off the deployed page rather
 than re-keyed.
-Seven frames come back *lighter* — four of them by two hundredths of a luma or less — one darker, between **0.10%** and
-**0.78%** of each picture different. The furthest is ABATOIR CORE tilted up at its ceiling: **+0.92** lumas over **0.78%** of its pixels, the roof band coming up from 57.4 to 59.3, which is #495 paying
-for a room's own roof out of its deck. The ABATOIR arrival seat is the other frame a player reads differently: **−0.16**
-over **0.57%** — 4,205 of those pixels along the slab across the top of the picture, 1,601 in the middle and 459 on the
-deck that pays for it. The five ARCHIVE poses and THE STACK moved between **0.10%** and **0.41%** of their
-pixels and by a tenth of a luma of mean or less: a thin band under the horizon where a storey's far edge used to
-arrive as a torn black staircase and now arrives as a surface (#941), and the columns the held rifle occupies, which is
-the disagreement between two page loads #611 already names.
+Five frames come back *lighter* by six hundredths of a luma or less, between **0.10%** and **0.22%** of each picture
+different, and one comes back darker — ABATOIR CORE's arrival seat, **−0.16** over **0.57%**, 4,205 of those pixels along
+the slab across the top of the picture, 1,601 in the middle and 459 on the deck that pays for it. Two moved by more than
+a tenth of a luma, and they moved for different reasons. ABATOIR CORE tilted up at its ceiling is the paint: **+0.92**
+lumas over **0.78%** of its pixels, the roof band coming up from 57.4 to 59.3, which is #495 paying for a room's own roof
+out of its deck. THE STACK is the room: **+1.33** over **7.82%** of its picture, and no renderer byte moved those pixels.
+#421 authors a storey into that plan and #917 leaves the authored deck standing above the hall's own ceiling plane, so
+the frame this page printed showed a shallower room than the one the shipped build draws. The five ARCHIVE poses moved
+the least: a thin band under the horizon where a storey's far edge used to arrive as a torn black staircase and now
+arrives as a surface (#941), and the columns the held rifle occupies, which is the disagreement between two page loads
+#611 already names.
 A delta is a statement about the exposure a room lands at, not about how much of the picture moved, which is why every
 caption below states its kept-pixel percentage beside its mean.
 Every row of `provenance.json` carries its own replaced-frame mean so the direction is readable per frame rather than
 only in aggregate.
 
-All eight are bound to build `709c934`, the one main ships, and the camera ran one build behind it: the page they were
-shot off was proved twelve blobs for twelve against `ae0dd1d`, `709c934` differs from that build in `js/20_level.js`
-alone, and the arbiter painted the three seats these rows name from both trees and got back byte-identical frames —
-the verdict that says the record needs a re-key and no second shutter is owed (#910). Against the frames on the page
+Seven of the eight rows are bound to build `709c934`, the one main ships, off a camera that ran one build behind it: the
+page they were shot off was proved twelve blobs for twelve against `ae0dd1d`, `709c934` differs from that build in
+`js/20_level.js` alone, and the arbiter painted its own three seats from both trees and got back byte-identical frames —
+the verdict that says a record needs a re-key and no second shutter is owed (#910). That verdict did not cover the
+eighth row, and review caught it: the arbiter paints the dealt camera-0 seats, and the frame this page prints for THE
+STACK is its arrival pose, where those two builds part by 7.41% of the picture. So `level3-stack` was re-shot off the
+`709c934` deploy itself — proved twelve blobs for twelve before the shutter — and the seven the arbiter spoke for were
+carried. Against the frames on the page
 before this one five of the twelve blobs moved and three of them paint, which is the verdict that did ask for a camera. All eight came back with new bytes —
-none of them the sha256 the front page carried — and all eight came back on the three layout signatures the replaced rows
-already name (ARCHIVE 4083630493, ABATOIR 2343219222, THE STACK 3610925125), so every delta below is a statement about
-the paint and none about the dice. The two
+none of them the sha256 the front page carried — and seven came back on the two layout signatures the replaced
+rows already name (ARCHIVE 4083630493, ABATOIR 2343219222), so every delta below is a statement about the paint and none
+about the dice — with the one exception its own caption names. The two
 changes the pass before this one made are still in the picture: standing on a raised band, the strip of picture at the edge of your own deck used to be painted
 as a wall face at the boundary's own distance, and it is now the deck up to the lip and whatever honestly stands behind
 it (#517) — and the lit crease where that walkable surface stops now keeps a floor under it, so the edge still reads in a
@@ -94,9 +101,9 @@ below hashes, and both were already inside the bytes these frames replace — wh
 picture apart from the gun's own columns, and why no ARCHIVE pose here moves because of a deck edge. What a player sees
 differently in this set is three other things: a roof that pays for its own room out of its deck (#495, `js/20_level.js`),
 a storey's far edge that stops arriving as a torn black staircase (#941, `js/40_render.js`), and a hostile at 6 m who
-keeps the surface he has at 8 m (#922, `js/13_mesh.js`). The eight poses came back on the same
-three layout signatures the replaced rows name — ARCHIVE 4083630493, ABATOIR 2343219222, THE STACK 3610925125 — so the
-deltas below are a statement about paint, not about the dice. The pass supersedes the frames this page carries
+keeps the surface he has at 8 m (#922, `js/13_mesh.js`). The seven carried poses came back on the same
+two seeded signatures the replaced rows name — ARCHIVE 4083630493, ABATOIR 2343219222 — so their deltas are a statement
+about paint, not about the dice; the eighth moved with the plan it is drawn from. The pass supersedes the frames this page carries
 (`f42f5ce`, re-taken by #914 — the bytes at `b5b8b74` and `d7a0196` are those same bytes), and the re-key proved its
 build off the wire before the record moved to it: `index.html` and
 every script that page loads — twelve blobs — sha256-match `git show ce6b539:<file>` twelve for twelve, so every frame
@@ -125,13 +132,15 @@ same command also prints a
 `CAPTION-VERDICT` row that compares this sentence with the digests, so the page cannot be left a pass behind by the
 pass it describes (#653).
 
-What a reader should take from the eight frames is that the rooms held and the paint moved. All three dealt signatures
-came back identical to the ones the rows these frames replace name: ARCHIVE SUBLEVEL 4083630493, ABATOIR CORE 2343219222,
-and THE STACK — hand-authored — still 3610925125. One instrument term did *not* come back readable: this pass's headless
+What a reader should take from the eight frames is that the rooms held and the paint moved. The two seeded signatures
+came back identical to the ones the rows these frames replace name: ARCHIVE SUBLEVEL 4083630493 and ABATOIR CORE
+2343219222. THE STACK — hand-authored — came back 3132488476, and that is not a re-cut of the dice: `DEV.state().layout`
+is an FNV fold over the height grid and then the floorplan (`js/90_dev.js:471`), so on a level written cell by cell the
+number states the plan, and #421 authored a different plan. One instrument term did *not* come back readable: this pass's headless
 loads had no audio output device, so `SND.init`'s `AudioContext` constructor returned before setting `SND.ac` and
 `sampleRate` was never read off the page. Each row therefore carries the 44100 Hz its replaced row recorded, and says so
 in its own note. #404's rule is the control read the other way: that term sets how many draws precede generation, so
-had it moved the signatures would have moved with it, and all three did not (#404). So this is today's bytes drawing yesterday's room rather than a
+had it moved the signatures would have moved with it, and neither of the two did (#404). So this is today's bytes drawing yesterday's room rather than a
 new roll: every mean below is a statement about the deal the replaced frame already showed, and a delta below is a
 statement about the paint. That is why every row there states its own sample rate, and why a signature is read as this
 row's deal rather than as a property of the URL. It is also why no caption below states the
@@ -157,10 +166,12 @@ Between the two builds only `js/40_render.js` moved — one blob of the twelve t
 rules about one row of one column: that row now yields for every step down rather than for a one-quantum tread (#517),
 and the crease it paints keeps a six-luma floor, so it survives a lit room (#918). The bind now hashes every script the page's own `index.html` loads rather than four
 hand-picked files, which is the hole #555 was filed for and the row above closes.
-Per frame, in the order the eight appear below, the deltas to **+0.01 / +0.01 / +0.02 / +0.04 / +0.06 / +0.11 / −0.16 / +0.92** mean luma; `recap`
+Per frame, in the order the eight appear below, the deltas to **+0.01 / +0.01 / +0.02 / +0.04 / +0.06 / +1.33 / −0.16 / +0.92** mean luma; `recap`
 computes each one from the two frames and names the row that disagrees, and a caption below repeats only its own
-number. Seven frames come back lighter — four of them by two hundredths of a luma or less — one darker; the furthest
-is the ABATOIR ceiling pose at +0.92, and no pose moved more than four fifths of one per cent of its pixels: `js/20_level.js`
+number. Five frames come back lighter by six hundredths of a luma or less, one darker, and the two that moved further
+than that moved for different reasons: the furthest is THE STACK at +1.33 over 7.82% of its picture — the only pose that
+moved more than four fifths of one per cent of its pixels, and the only one moved by an authored deck rather than by
+paint — while ABATOIR's ceiling pose is +0.92 over 0.78%, where `js/20_level.js`
 parts a roof from its deck (#495), so the two ABATOIR poses are the only ones whose frame holds enough of a lit roof or a
 slab to show it, and the room-side pixels in the ARCHIVE poses are the one far-edge band (#941).
 
@@ -311,8 +322,8 @@ spawn seat's deck, which is why it falls off across the room instead of stepping
 ![the authored two-storey level from its own spawn seat](docs/screens/level3-stack.png)
 
 **THE STACK**, the hand-authored level, from its spawn seat: (1.5, 2.5) on the datum, the derived heading 0.8761, the
-route's clear leaving the HUD at **0 LEFT**, and **0 of 763 rows average below luminance 24** (mean 70.33, thirds 59.3 /
-81.0 / 70.7; at the tool's other bar, no rows under 34 at all). The seat reads back at (1.5, 2.5) on `floorAt` **0.00**,
+route's clear leaving the HUD at **0 LEFT**, and **0 of 763 rows average below luminance 24** (mean 71.55, thirds 61.3 /
+82.7 / 70.7; at the tool's other bar, no rows under 34 at all). The seat reads back at (1.5, 2.5) on `floorAt` **0.00**,
 heading 0.8761, and the plan it sits in is the hand-written one. The heights the replaced caption read off that plan —
 the slab over the seat, the opening the heading stops at, the span of the face crossing the middle of the frame — are
 not restated here: #421 authored a storey into this plan since those numbers were taken, and this pass read the seat,
@@ -327,18 +338,19 @@ glyphs on the minimap are the climb that gets you up there. Hand-authoring remov
 plan is written cell by cell over a 20 × 20 grid — and it also shows what is still missing:
 Whether this seat is genuinely under a second storey is a `tools/view.js volume` claim and this pass did not
 re-read it; what the frame shows is a bright band over a lit deck, which is the shape #353 is about. The vault is still
-not the darkest large surface, its band runs **59.3** against the deck's 80.7, and there is no dark block left to
+not the darkest large surface, its band runs **61.3** against the deck's 82.7, and there is no dark block left to
 count, because #495 gave the ceiling a light floor and this seat's slab top is a lit surface now. The plan is written
-cell by cell and the seat is still (1.5, 2.5), and this frame is **+0.11** on the one it replaces, neither a wall arriving nor a room re-exposed - and the deal held:
-layout **3610925125** is the signature the replaced row names, authored cell by cell, and the seeded stream that rolls
-it was not re-cut. A delta that rounds to nothing is not nothing here:
-**0.41%** of its pixels differ from the bytes it replaces by the kept-pixel rule - 4,488 of them, one pixel in two
-hundred and forty-five, none in the top third, 4,454 in the middle and 34 in the bottom, rows 304 to 518 and columns 293
-to 1235 touched at +7.11 lumas each. That rectangle is the authored storey’s far edge, which on these bytes arrives as a
-surface rather than as torn black steps (#941) - the largest kept-pixel count of the eight. 54 of them are the rifle's own columns; the other 43 are one thin band under the
-horizon where the far edge of a storey now arrives as a surface rather than as torn black steps (#941). What
-moved between these bytes and the last pass is otherwise the same paint as everywhere else in this set - the wall sheet's own
-grain at the range the ashlar faces are actually looked at (#889), over the ashlar family they already wore (#428). The heights the replaced caption read off this plan -
+cell by cell and the seat is still (1.5, 2.5), and this frame is **+1.33** on the one it replaces - the largest move of
+the eight, and the only one that is not a story about paint. The shipped page reports layout **3132488476** at this seat
+where the replaced row named 3610925125, and that number is not a re-cut of the dice: it is an FNV fold over the height
+grid and then the floorplan (`js/90_dev.js:471`), so for a hand-written level it states the plan. #421 authored a storey
+into this plan and #917 left that deck standing above the hall's own ceiling plane, so the slab over this deck is now a
+plane of its own and the frame shows a taller room than the one it replaces. **7.82%** of the picture - 85,897 pixels,
+one in thirteen, 34,960 of them above the horizon and 50,903 in the middle band, rows 0 to 518 across the full width at
++16.17 lumas each - is that slab and the light under it, by far the largest kept-pixel count of the eight. What
+moved between these bytes and the frame before them is otherwise the same paint as everywhere else in this set - the far
+edge of a storey answering with air instead of with nothing (#941), and the wall sheet's own grain at the range the
+ashlar faces are actually looked at (#889), over the ashlar family they already wore (#428). The heights the replaced caption read off this plan -
 the slab at 1.00 over the seat, the atrium opening at 4.00, where the heading's first face stops - are not restated,
 because #548 authors height in the authored cells too and this pass did not re-solve them.
 
