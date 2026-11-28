@@ -1,0 +1,13 @@
+# NOT broken: the shape a real workflow has, so a guard that over-reports cannot go green either.
+name: fixtures
+on:
+  push:
+    branches: [main]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Say hi
+        run: |
+          echo hi

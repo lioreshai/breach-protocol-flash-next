@@ -44,6 +44,14 @@ same step (merged-not-tagged, tagged-not-published, or published), and `ci.yml` 
 itself as a Git object: annotated, tagged by the authorized identity, pointing at a commit whose
 own release.json pins that version.
 
+On the merged release commit itself, while its tag is still outstanding, that `ci.yml` step prints
+a named `KNOWN` row and passes: the tag is cut after that commit's build is green, so the build
+cannot carry the ref its own step demands, and asking for it holds the publication that would make
+the row green (#792). `release publish (main)` is the row that stays red for that state, and the
+release-due issue carries it, so the exemption moves the debt rather than deleting it. A tag that
+exists is read as a Git object first whoever is asking, so a lightweight, mis-pointed, mis-pinned
+or foreign-stamped artifact still fails the `ci.yml` step even there.
+
 While a merged release PR is simply mid-handoff, the `release` row on other people's PRs stops
 failing: the debt belongs to the release owner, and the red row now sits where the work is owed.
 

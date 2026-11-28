@@ -267,6 +267,9 @@
     if (name === 'farvoid') { FARVOID = value === undefined ? 1 : (value ? 1 : 0); return { farvoid: FARVOID }; }
     /* #616: the far void's surface. 0 = the flat air slab past the radius, as it shipped. */
     if (name === 'farcross') { FARCROSS = value === undefined ? 1 : (value ? 1 : 0); xCSer = -1; return { farcross: FARCROSS, far: GQ ? GQ.far : FARB }; }
+    /* #616: the distance a void ray flew, on the crossing's structure. 0 = the fetch fogged by `1-fogAt`
+       alone, which is the saturated answer the band shipped with. */
+    if (name === 'fardist') { FARDST = value === undefined ? 1 : (value ? 1 : 0); return { fardist: FARDST, far: GQ ? GQ.far : FARB }; }
     if (name === 'gndtex') { GNDTX = value === undefined ? 1 : (value ? 1 : 0); return { gndtex: GNDTX, blend: FARBLEND, far: GQ.far }; }
     if (name === 'gndoff') { GNDOF = value === undefined ? 1 : (value ? 1 : 0); return { gndoff: GNDOF }; }
     if (name === 'gndbil') { GNDNB = value === undefined ? 1 : (value ? 1 : 0); return { gndbil: GNDNB }; }
@@ -290,6 +293,14 @@
        issue's own cross-process wobble, so it is an arm and not a fix (js/40_render.js, take eighteen).
        `mip`'s magnified-share row is the A/B and renders BOTH senses in one process. */
     if (name === 'gndmag') { CGWN = value === undefined ? 1 : (value ? 1 : 0); return { gndmag: CGWN }; }
+    /* #19 take twenty's A/B. 1 = the share of a minified pixel's strip that the walk's own taps do not
+       stand for goes to the material's mean instead of being left on them; 0 (shipped) = main, because
+       measured, the gate never opens - see js/40_render.js. A value above 1 scales the share. */
+    if (name === 'gndmean') { GNDMM = value === undefined || value > 0 ? 1 : 0; if (value > 1) GNDMMS = value; return { gndmean: GNDMM, gndmeans: GNDMMS }; }
+    /* #353's `slabgrain` A/B is GONE with the term it switched: the soffit's joist is baked into
+       CEILS.SOFFIT now (js/10_assets.js, and the note at SLABUND in js/40_render.js), so a switch here
+       would gate a term that is no longer in the build and hand a probe a green row that cannot fail. The
+       live A/B for this plane is `DEV.set('slabund', 0)`. */
     /* #407's A/B. 1 (shipped) = a body or prop takes MAP.light WHOLE at its own cell, exactly as a wall
        column and a ground pixel do; 0 = the pre-#407 second falloff (lm * exp(-distance * 0.14)) is back
        in BOTH copies - the mesh triangle shading and the billboard. One register, two read sites, so it
@@ -300,11 +311,29 @@
        the black-point lift alone, which is what the > luma 224 rows were measured against before. Both
        halves of the term still run; only the `darken` fold is skipped. */
     if (name === 'shoulder') { SHOULDER = value === undefined ? 1 : (value ? 1 : 0); return { shoulder: SHOULDER, top: EXPOSE_TOP }; }
-    /* #407 half two's A/B. 1 (shipped) = a body's shape ramp also SCALES the directionless lamp field,
-       so the field reaches it at R0 + R1/2 of what the wall behind keeps; 0 = the same ramp centred on
-       the field (mean 1 over its own domain) in the one mesh site that carries it. The gun keeps the
-       shipped form either way - #376 owns that. See js/00_core.js. */
+    /* #407 half two's A/B, shipped by #922 with its polarity the other way round. 1 (shipped) = the
+       body's shape ramp is CENTRED on the directionless lamp field, `1 + R1*(d - 0.5)`, mean 1 over the
+       ramp's own domain, so the field reaches a body whole in the average and the lit/shaded spread
+       stays R1's; 0 = the OLD form, the ramp also acting as a SCALE (`R0 + R1*d`, mean R0 + R1/2 =
+       0.725), which is the picture #407 priced. The gun keeps the old form either way - #376 owns
+       that - and js/13_mesh.js's figure-ground gate reads this register as "the shipped light terms are
+       in force", so it stays armed at 1 and stands down under the arm. See js/00_core.js. */
     if (name === 'bodyshade') { BODYSHADE = value === undefined ? 1 : (value ? 1 : 0); return { bodyshade: BODYSHADE }; }
+    /* #922: #611's figure-ground push has its OWN arming now, so an A/B on a light term can hold the push
+       in ONE state across both of its renders instead of moving it by accident. 1 (shipped) = the push
+       runs, which is what it did while this test borrowed BODYSHADE's value; 0 = the push stands down and
+       no light term moves. A frame with no body in it is byte-identical either way - the push only ever
+       fires on a world body - which is the contract this register is checked with. */
+    if (name === 'bodycfg') { BODYCFG = value === undefined ? 1 : (value ? 1 : 0); return { bodycfg: BODYCFG }; }
+    /* #611's COLOUR half, authored rather than dealt (PR #809). It has its own register for the reason
+       #922 wrote bodycfg: the term reads DELIVERED pixels, so an A/B that reaches it through a light term
+       would measure its own delta and push it back out. 1 (shipped) = the per-channel gain runs where a
+       body's own hue sits inside FG_CTGT of the surface framing him; 0 = he wears his palette times the
+       room's cast, which is the state the 17.8-luma deal in the sweep is the A/B for. Where he already
+       separates the term is inert, so 0 and 1 are byte-identical on a frame with no body in it - the same
+       contract bodycfg is checked with. Without this arm the register existed only as a declaration, and a
+       term nothing can stand down is a term no row can prove. */
+    if (name === 'bodyfgc') { BODYFGC = value === undefined ? 1 : (value ? 1 : 0); return { bodyfgc: BODYFGC }; }
     /* #407 half three's A/B. 1 (shipped) = a body wears its own texel albedo; 0 = every non-emissive,
        non-view-model mesh pixel wears BPAINT_RGB instead while every light term stays put, so the same
        silhouette can be rendered wearing the colour of the surface behind it. tools/view.js contrast

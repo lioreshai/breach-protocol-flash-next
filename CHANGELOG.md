@@ -1,5 +1,698 @@
 # Changelog
 
+## [v1.4.37] - 2026-11-27
+
+### Changed
+
+- **An enemy at fighting range looks like armour, not painted card** (#922, PRs #939, #944, #946). A hostile
+  4-8 m away — the range a firefight actually happens at — arrived as sheets of flat colour joined at one
+  hard vertical edge, and he got *flatter* as he closed: between roughly 5 m and 17 m he held one dull value
+  and only sharpened again at arm's length, so the thing you have to react to read as a lesser surface than
+  the wall behind it. Three authored numbers in the body mesh close that. His torso seam now runs twice
+  across his own box instead of once, so twice as many edges arrive through the same brightness swing; that
+  seam now travels *up* him as well as around him, which is the difference between a set of vertical ridges
+  and a mottled body; and the structure level is made to hold from the eye out to about 17 m instead of
+  plateauing across the middle of a fight. Read on a body walked in from 8 m, his own structure now stays
+  near its 8 m value at 4, 5 and 6 m in two of the three rooms that can be measured there, where it used to
+  dip by a visible margin. This is not a brighter enemy and not a bigger silhouette: past about 17 m he is
+  unchanged byte for byte, and no pixel outside his outline moved. Still open on #922: the very close end,
+  where the pattern is no longer the limit and the amplitude ceiling is — in one sector's seating room he
+  stays about 1.3x softer at 4-6 m than at 8 m.
+
+### Fixed
+
+- **The top of the frame stops tearing into a black staircase** (#941, PR #943). Look up at the storey above
+  you and the line where its underside ended used to arrive as a comb of pure-black cells, stepping once per
+  room cell across a third to a half of the frame at the seats you actually spawn at — and it was the first
+  thing the eye caught, ahead of the room itself. It was neither missing geometry nor a missing light. The
+  dark crease drawn along a deck edge removes 84% of a pixel's light whatever that pixel was carrying, so on
+  a far face the raycast had already left nearly dark, it delivered nothing at all, one cell at a time along
+  that boundary. The crease now has a dark floor: it may not drive a pixel under the least light the level
+  generator counts as a surface that is actually lit, and it applies only to the pixels it was already
+  crushing. At the two headless seats that showed the defect, pixels arriving under that floor go from 600
+  and 1076 down to none, and the frames do not get brighter to buy it — the light was redistributed, not
+  added, and the sector's overall exposure lands where it shipped. The edge is now a continuous dark line
+  rather than a hole. It still steps by whole cells at the far end of a long view, which is a resolution
+  limit of the walk rather than a black gap, and that stays open on #941.
+
+### What else is in this release
+
+No other merged work moved a shipped pixel. What the two fixes above are measured with got stronger: a slow
+turn can now be captured with a hostile half outside the edge of vision, so "he keeps his surface at every
+heading" became a claim about the frame edge and not only about the centre (#942); a body walked from 8 m to
+arm's length now prints his own structure at each range against his own 8 m reading, which is the number the
+fix above is written in and had no row behind it (#945); and a storey's far edge is now counted by the
+shipped picture itself — stepped columns, worst single step, and pixels landing under the dark floor —
+instead of by a throwaway script rewritten per attempt (#947).
+
+## [v1.4.36] - 2026-11-26
+
+### Changed
+
+- **ABATOIR CORE's ceiling stops being a dark lid** (#495, PR #935). That sector drops you into a tank room
+  whose roof covers 42% of the opening frame, and the roof arrived at barely three quarters of the
+  brightness of the floor you stand on. It now arrives at **0.80x** its own deck — ceiling 63.4 over a deck
+  of 80.0, against **0.74x** (60.6 over 83.7) measured on the previous build in the same harness — and the
+  range-bin median, the ratio at the distances the eye actually judges the roof at, goes **0.54 -> 0.59**.
+  The light was traded, not added: the sector's ceiling dose was lifted and most of it paid back out of the
+  deck that roof covers, so the room's overall brightness comes back at the number it shipped with: what
+  changed is where the light sits inside the frame, not how much of it there is. The rule that a roof may
+  never out-value the floor beneath it is untouched, and the ceiling-under-deck check stays green on all four
+  sectors. THE STACK's roof is the one still short of its own deck — 0.67x at its arrival seat — and that is
+  a ceiling with no surface of its own at range rather than a dark one, owned by #421.
+
+- **An enemy at arm's length keeps his own surface** (#922, PR #938). Up close, a hostile's torso arrived as
+  flat coloured sheets: his own seams carried about half the on-screen slope of the wall directly behind
+  him, in exactly the range a fight happens in. The near-field seam that draws his form is now cut at the
+  steepest level the renderer's own zero-mean rule can carry without tipping into a one-sided wash. Measured
+  before and after in one harness at the same three seats, the inside of a torso delivers **0.83 / 0.99 /
+  0.96** luma of slope per screen pixel against rooms of 1.58 / 1.81 / 3.58 — ratios **0.52 / 0.55 / 0.27**,
+  up from 0.50 / 0.52 / 0.25 — while the check that catches a body paying for its structure with brightness
+  instead of surface stays inside its floor on all three, and all 127 contrast rows stay clean. The distance
+  at which his body stops being drawn this way moves with it, to roughly 11 m for a brute by the renderer's
+  own crossover arithmetic; past that he is unchanged, and no pixel outside a silhouette moved. What is left
+  in the busiest room, where the wall behind him is still the busier surface at 0.27, is his colour against
+  that wall rather than his shading — that is #611.
+
+### What else is in this release
+
+No other merged work moved a shipped pixel. The live-page timing instrument behind the turn-cost question
+grew up: it now prices the window that times the measurement as well as the frame, times only the frames in
+which the view actually changes, splits the shadow pass into its two costs and says when a switch never
+armed, runs every ablation beside an inert control that switches nothing, and refuses to attribute anything
+from a sector whose gap has already closed or from a run that had nothing to measure (#728, PRs #933, #936,
+#937). The recorded reference digests were re-derived against the build that ships (PR #935).
+
+### Still open after this release
+
+- **Turning on the spot is still dear** (#728). The instrument to price it is now in place; no single heading
+  has been shown to account for the ~4x spread across a circle, so the turn itself remains the cost.
+- **An enemy is painted in his room's colours at 10-16 m** (#611, PR #809 in rework) — the other half of why
+  he arrives a beat late in the busiest rooms.
+- **THE STACK's roof** at 0.67x, and **ABATOIR CORE's far bins** at a 0.59x median inside the now-green 0.80x
+  aggregate: past the draw radius the roof has no light of its own to spend, and #495 was closed on that as
+  named debt rather than a fourth dose.
+- **The front page's screenshots predate both changes above.** The shipped-bytes bind in the front-page check
+  now names one build whose pixels paint differently, so a re-take off the deployed build is owed (#931).
+
+## [v1.4.35] - 2026-11-25
+
+### Changed
+
+- **A hostile at fighting range keeps the light his room keeps** (#922, PRs #924, #930). An enemy four to
+  eight metres away used to arrive dimmer than the wall directly behind him — his own lit/shaded form was
+  also scaling the room's light down to roughly three quarters of itself, so he resolved a beat late as a
+  flat coloured card rather than as a body, in exactly the range a fight happens in. Two numbers in the
+  character renderer moved. The form ramp is now centred on the room's light instead of multiplying it, so
+  the lit/shaded spread stays and the room's light arrives whole; and the torso seam's near-field gate now
+  sits at the distance where that shading law crosses over on its own, where it had been parked at a
+  distance borrowed from a list of saved screenshots — 4.4 m, i.e. inside combat range, which is where his
+  surface had been flattening out. Measured at the four sectors' spawn seats at 8 m, his delivered brightness
+  against the surface behind him at the same pixels went from -27.1 / -26.5 / -9.7 / -10.9 lumas to
+  -15.8 / -19.6 / +8.0 / +7.9 across ARCHIVE SUBLEVEL, RING TRANSPORT, ABATOIR CORE and THE STACK, against a
+  20-luma bar, with every moved pixel inside his own silhouette and the room behind him unchanged. The gun
+  in your hands keeps its own shading and props keep theirs, so this is his body and nothing else.
+
+### What else is in this release
+
+The rest of the merged work moved no shipped pixel, and is listed so nothing here reads as more than it
+is: a gate and a live-page instrument behind the pickup relight, so a health kit's own pixels can be
+isolated from a running frame and a later change cannot quietly flatten it back into a card (#862, PRs
+#926, #928, #929); a turn-cost read that re-tests its own timer and its own sampling order (#728, PR
+#932); and the front page's eight frames re-keyed against the build that ships (#925, PR #927).
+
+### Still open after this release
+
+- **ABATOIR CORE at 16 m** still reads 22.7 lumas under the surface behind it against the 20 bar. The light
+  path is now paid at that seat; what is left is the enemy's own colour against that wall, which #611 owns
+  and PR #809 has in rework.
+- **Turning on the spot is still dear.** The merged read found no single heading that pays for it — what a
+  turn costs is the turn itself — and it contradicts an earlier reading of the same sweep, so the ~4x
+  spread across a circle is unreduced and still owned by #728, with PR #933 open on the method.
+- **The front page's screenshots predate this change.** They are pinned to the build before the body
+  centring; a re-take off the new deploy is owed (#931).
+
+## [v1.4.34] - 2026-11-24
+
+### Changed
+
+- **The lip of the floor you are standing on reads as an edge** (#517, PRs #915, #918). Stand on a raised
+  band — an upstairs reached by steps — and look off its edge. That line used to be painted as a slab face at
+  the boundary's own distance, while a ray landing on it actually arrives up to 3 m farther away: the lip
+  looked like a near wall hanging in the air, and a body standing just past it lost a scan-line to the depth
+  buffer. The deck now runs up to the lip and whatever is honestly behind it runs past, with a lit crease
+  marking where walkable surface stops — for a drop of any height, not just a one-quantum stair tread. The
+  crease also keeps its depth when the room is bright: measured at THE STACK's face lip the edge had thinned
+  to 43% contrast in a lit room against 84% in a dim one, and it is now lit independently of the deck, so
+  "where can I shoot over" and "where will I fall" stay readable with the lamps on. A step up, a flat room
+  and a dark deck are unchanged.
+
+- **ABATOIR CORE's ceiling stops being a lid** (#495, PR #794). In the sector that drops you into its tank
+  room, the surface over your head read 0.63x the brightness of the floor you stand on and covers 42% of the
+  frame — nearly half the picture was a black sheet. It now reads 0.74x, arriving as a lit material with its
+  own shading. The rule it is graded against is unchanged and still asserted — a roof may not out-value the
+  deck it covers — and the other three sectors are byte for byte what they shipped: this is one authored
+  number on one sector.
+
+### Fixed
+
+- **A descending staircase stops striping inside its own faces** (#904, PR #907). Looking down a flight, the
+  staircase's own area was combed with thin vertical light/dark bars repeating down the treads while the
+  silhouette was already correct. Down a flight, the depth answer for a face was decided by which way an
+  identical distance happened to round when stored as a 32-bit float, and the answer flipped from column to
+  column. The tie is now settled in one comparison; the flight reads as one continuous surface from the top
+  tread to the bottom, and the dealt-room and moving-body censuses are unchanged.
+
+- **Past a deck's edge you see the floor your ray arrives at** (#518, PR #912). Near the edge of a raised
+  deck, the ground just past the drop was the deck itself stretched to the horizon — same texture, same
+  brightness, at the deck's distance — which made a platform's edge stop being somewhere you can fall off and
+  made a pit read like a table seen from above. The floor march now applies its own arrival test when it runs
+  out of reach instead of handing back the plane the pixel was queued on, so a column past a lip is painted at
+  the surface and distance it actually reaches. A flat level cannot satisfy the test, so it costs two compares
+  and moves no pixel.
+
+- **The project page now shows the build that ships** (#910, PRs #911, #913, #914, #919). Each of the eight
+  frames carries the build its pixels were shot from, the check that keeps that claim honest covers every file
+  the page actually serves — `index.html` and the eleven scripts it loads, twelve blobs in all — and a file
+  that changed without moving a single pixel no longer forces the whole set to be re-shot. The set has been
+  re-taken in one pass off the deployed build, so on the game this release ships `node tools/recap.js check`
+  answers `SHIP-BIND`: those twelve painting files are byte-identical to the build these eight frames came
+  from, and no re-take is owed.
+  When a page and a build do disagree, the page now says which side is behind instead of quietly agreeing with
+  itself.
+
+### Known limitations
+
+- Looking **up** at a raised floor from the deck below is still the weakest frame in the game: that slab's
+  underside wears the level's ceiling material, so from below the second storey can still read as a lid with
+  no visible floor over it. That is #421 and #495's remaining sector — THE STACK still arrives with its roof
+  at 0.67x the deck under it, the last one under the bar.
+- This release fixes the floor half of the past-the-edge case only. Ceilings past a lip still answer the
+  plane they were queued on (#518's ceiling half).
+
+## [v1.4.33] - 2026-11-23
+
+### Changed
+
+- **The level keeps going behind a pit's lip** (#829, PRs #898, #903). Walk up to a pit, a raised deck or a
+  mezzanine and look at it. Past the edge the frame used to stop answering: the wall standing behind the lip
+  was simply absent, so you saw open deck where a room went on, and a body on the far side was inside geometry
+  you could shoot through. Two changes fix it. The march that finds faces was spending a slot on every lip a
+  column crosses, and on a step-dense column the second and later lips land in screen rows the first lip
+  already owns — those faces are now marched past without taking a slot, so the slots go to faces that can
+  actually change the column. And the face budget goes from four to eight. On ABATOIR CORE's two dealt cameras
+  that is 3,860 and 4,332 pixels changed near the centre of frame, and 6,834 across a band of THE STACK where
+  the far wash used to answer; the other six dealt cameras are byte for byte what they shipped. In RING
+  TRANSPORT, the sector that paid for extra faces and got nothing, columns hitting the old cap go 59 → 0 and
+  the frame is unchanged. What stands behind a lip is now part of the picture rather than a gap in it; the
+  overlook-a-storey-up aiming case the same issue filed is still open there.
+
+- **Jumping clears a lip the body is already flying over** (#893, PR #902). The game's one movement test took
+  no altitude, so a riser blocked a body whose feet were half a metre above it exactly as it blocked a walker.
+  A jump therefore cleared nothing at any width. Now, for a body the physics has lifted off the ground, a
+  cliff stops being a stop when the feet are within one step of the far side's floor and that column is one a
+  body can stand in. Measured: 1-, 2- and 3-cell pits whose floor is 1.00 m down are crossed at sprint and
+  1- and 2-cell pits at a walk, landing on the far deck, where every one of those cases previously ended with
+  you on the pit floor. Walking, stepping, falling, fall damage, bot movement and the generator's own
+  reachability walk are answered exactly as before — 2,152 directed boundary crossings of a dealt level agree
+  with the grounded answer, 0 disagreements.
+- **A half-wall is now a handhold at the height a crate is** (#893, PR #908). Jump at a ledge whose deck stands
+  0.75 m above the one you are on and you land on it. It used to stop you at the lip, while a crate with exactly
+  the same top could be vaulted — the game priced "how high can I lift myself" twice and the two prices differed
+  by 3.6 cm. One number now prices both, read off the same window props already used. A full 1.00 m storey still
+  refuses and a 1.00 m pit still cannot be jumped out of: the arc tops out at 0.464 m and a storey is deliberately
+  left off the jump. Walking, stepping and every pit row that was already gating are unchanged.
+
+- **A fall moves the eye instead of teleporting it** (#894, PR #905). The camera's height was re-derived from
+  the body and clamped into the band of whichever column you were over, and a pit's ceiling is the neighbouring
+  deck's floor — so the frame your feet crossed the lip, the view dropped about half a metre in one frame and
+  then sat completely still while the rest of the fall happened (for a 1 m drop, motionless through the first
+  ~0.35 s of a ~0.45 s fall). The top of every jump on a normal deck was flat for 9 frames for the same reason.
+  While the feet are unsupported the eye now takes the body's altitude with the floor guard still on. Jumping
+  and going over a lip read as a curve. Standing still in a room is byte-identical.
+
+- **The rifle's fore-end and magazine are round** (#780, PR #901). The rifle is the gun the off hand actually
+  grips, and its fore-end was a flat polymer plate with the fingers painted out behind it and the magazine a
+  dark slab, so the weapon stopped reading as the thing being held. Both parts are now eight-sided prisms
+  inside the envelopes they already occupied, with two polymer rails along the handguard's flanks putting back
+  the width the round section hands over. Same silhouette, different surface: the facets catch the light at
+  different angles, so the mass the fingers wrap has a near side and a far side. The census that prices exactly
+  this — render the rifle at the hip, then again with every round part deleted — went 188 px → 1,172 px against
+  its own 1,117 px bar, so the rifle's held-parts row reads MET for the first time. The sight picture is
+  unchanged. Pistol and shotgun are untouched.
+
+- **Walls hold their grain instead of shuffling at range** (#889, PR #900). The last four wall textures whose
+  slow mottle was authored finer than a 128-texel sheet can hold — brick, concrete, the tech panel and the
+  slab — now carry that detail at the sheet's own ceiling, at unchanged amplitude, octaves and gain. This is
+  the remainder of the rule applied to the other wall tiles in v1.4.32: the shimmer that sat directly behind
+  whatever you were reading at six metres is gone, and every tile keeps its brightness, its grain and its place
+  in the room's light.
+
+- **The front page shows the build that ships** (#895, PR #906). All eight screenshots are re-taken off the
+  deployed game after the wall march landed, and every caption figure re-measured off those frames. Where a
+  frame barely moved, its caption says so.
+
+### Fixed
+
+- **A shallow pit is no longer a one-way hole** (#893, PR #902). Jumping out of a 0.50 m pit returns you to the
+  deck instead of leaving you standing on the pit floor.
+
+Not in this release, and known: a descending staircase stripes inside its own faces (#904, PR #907 in
+review); the pistol's carried parts are still painted out, at 15 px against an 845 px bar, because that envelope
+holds no round geometry at all (#780); and three older look items — a room
+with no wall inside its own rect, a prop reading as a hole in its own deck, and an enemy wearing his room's
+hue — remain in rework (#860, #695, #611).
+
+## [v1.4.32] - 2026-11-21
+
+### Changed
+
+- **A floor above you now looks like a floor** (#421, PRs #886, #890). Walk under a mezzanine and look
+  up. The surface over your head used to wear the level's roof sheet — same material, same grain, one
+  straight edge — so a storey somebody could stand on above you was indistinguishable from a ceiling, and
+  you could not see where that floor ended. It now has its own material: plate over joists, baked into the
+  texture chain so the joists stay legible at the 1.5–4 m a second storey is actually seen from instead of
+  dissolving into flat plate. And the slab's end is no longer a soft fade you cannot point at — the same
+  darkness is folded to one side of a split, so what you get is a shadow gap, a lit lip, then the roof. The
+  steepest edge in the frame now sits on the boundary you shoot over. Measured on this build, the median
+  step across that edge reads 58.8 / 72.8 / 29.9 / 67.7 lumas at the four sectors' look-up seats, against
+  that row's 15-luma bar. The band's own average brightness is held by construction, so an overhead surface
+  still cannot out-light the deck you stand on: this is structure, not a brighter ceiling.
+- **Stone floors stop streaking toward the horizon** (#19, PR #885). Crossing a stone deck — ARCHIVE
+  SUBLEVEL and THE STACK especially — used to lay thin comb-lines across it running back to the vanishing
+  point. The floor textures carried detail finer than their own sheets can hold, and a shallow-angle fetch
+  smears that leftover alias into spokes. Every deck term is now painted inside its sheet's own limit at the
+  same strength, so a bay reads as one continuous surface. Nothing got blurrier or brighter: on this build
+  the floor streak measures 30 / 33 / 60 / 38 against a worse 34 / 40 / 73 / 42 from the plain
+  one-dimensional mip control, and the room light is what it was.
+- **A wall keeps its grain instead of crawling when you back off** (#889, PR #891). At six or seven metres
+  the walls used to shimmer and shuffle as you strafed, sitting directly behind whatever you were trying to
+  read. The grain was authored into the wall textures finer than a 128-texel sheet can hold, worst on metal,
+  grate and the tech panels. Thirteen of those terms, in nine of the ten wall tiles, are now painted inside
+  that limit at their original strength, so every wall keeps its brightness, its grain and its place in the
+  room's light. This is the rule the roofs got in v1.4.31, applied to the walls.
+- **The front page shows the game that ships** (#882, PR #887). All eight screenshots are re-taken off the
+  deployed build, so they carry the slab-edge band, the joist spacing and the deck repaint. Where a frame
+  barely moved, its caption says so, with the percentage of pixels that differ from the frame it replaces.
+
+### Fixed
+
+- **The shotgun's pump is no longer hidden by the hand holding it** (#780, PR #892). At the hip — the pose
+  almost every second of play is in — the pump handle sat at the same depth as the fist gripping it and was
+  painted out, so the weapon read as a solid block rather than a pump-action. It now comes 6 mm nearer the
+  eye, arm and hand together. On this build the row that measures whether a carried part is actually drawn
+  clears its bar for the shotgun: 999 px against a 992-px bar. At the shoulder nothing changes — aiming
+  down the sights builds exactly the pixels it built before.
+- **The fist holding your gun has knuckles** (#780, PR #897). The widest thing about the hand was the smooth
+  barrel of its back, so one surface stood in front of every finger and the hand read as a flat plate
+  pressed against the weapon. Four knuckle heads now sit on the eye side of that barrel, on the same pitch
+  as the fingers they belong to, and the part being gripped shows in the gaps between them. Under one light
+  the hand breaks into separate masses instead of being one edge with lines drawn on it. Hip only — the
+  sight picture is untouched.
+- **A release that waits in review no longer lands on an already-red main** (#884, PR #888). The clock on an
+  outstanding publication step was started from the commit that authored the release files, which sits on
+  the release branch and only reaches main when its PR merges — so a release PR held in review for over an
+  hour went red ten seconds after merging. The clock now starts at the merge, and the guard and the tracker
+  describe the same debt the same way.
+
+Not in this release, and known: looking past a pit still stops at the lip on some seats — the march beyond
+the fourth face is in rework (#829, PR #898), though the measurement that filed it is now a gate that can
+fail (#896); the streak in the first four metres of a floor is magnified detail rather than minification,
+so this repaint does not address it (#19); four wall mottle calls share a helper with the floor sheets and
+remain past the resolution limit (#889); the pistol and the rifle still have their carried parts painted
+out, at 15 px and 188 px against bars of 845 and 1167 — on those two guns it is the weapon's own housing
+doing the hiding, which is a placement problem and not another pass at the hand (#780); a prop standing in
+its own light pool can still read as a hole in its deck (#695, in rework); and an enemy at range can still
+take on his room's hue (#809, in rework). Two merged PRs changed no pixel: #896 added a census row, and
+#888 changed release timing only.
+
+## [v1.4.31] - 2026-11-20
+
+### Added
+
+- **A floor above you now reads as a floor** (#421, PRs #879, #880). Walk under a raised deck and look
+  up. The underside used to be a flat sheet with one hairline where it ended, and it had the same
+  flatness as the ceiling over the rest of the level, so "there is a storey over my head" was something
+  you had to remember rather than see. The slab's end now carries a shadow band about the width of a
+  hand, which puts the darkness exactly where the floor stops: the step across that edge measured
+  10.4 / 13.6 / 2.7 lumas at the three seats that can score it, against a 15-luma bar, and reads
+  19.4 / 19.1 / 25.9 now. And the joists under the plate are spaced at 0.77 m, a real joist's pitch, so
+  the lining is still legible at the 1.5-4 m a second storey is actually seen from instead of dissolving
+  into a flat panel. Neither change dims anything: the luma the shadow band takes off the edge is paid
+  back onto the rest of the plate, and the rib's own shadow area is unchanged, so no lamp pool and no
+  room's average brightness moved.
+
+### Changed
+
+- **Your own gun's faces turn instead of sitting flat** (#824, PRs #873, #874). The weapon in your hands
+  is the closest object in every frame and until now it was the flattest thing on screen: the slide, the
+  frame and the grip each read as one value, so in a close fight the biggest mass in the lower right
+  looked stuck over the room rather than standing in it. Each part now carries one slow ramp across its
+  own face — lighter toward the side that faces the lamp, darker toward the side that faces away — so the
+  top of the slide reads ahead of its flank. The gun is no brighter: the same average light arrives, it
+  is only moved inside each face, and the ratio under a lamp and while firing is unchanged. The hands,
+  the sleeve and the muzzle flash are untouched. The issue now carries a before/after pair of the resting
+  pose taken at the same seat, with the recipe to re-take it.
+- **Health kits, ammo, armour and grenades answer the room's light like everything else does** (#862,
+  PR #868). Pickups were the one class the scenery lighting law never covered, so a health kit on the
+  RING TRANSPORT deck was the loudest object in the room — 142 lumas of itself against a floor of 63 —
+  and its near-white shell was pinned to pure white before any light reached it, which means no lamp
+  could answer it at all. They now pay the same four terms as a crate: the room's fill, face shading,
+  the clip and a rank. A kit is still the brightest prop you can find across a room — about the
+  brightness of the deck it stands on, instead of blown out — and the orb and the portal, which make
+  their own light, are unchanged.
+- **A roof reads as one surface instead of a fan of stripes** (#19, PR #881). Standing under a low roof,
+  the ceiling came back as light and dark wedges running to the vanishing point, in every frame with a
+  ceiling in it. The ceiling textures were painted with detail finer than the sheet they are drawn on can
+  hold — up to 280 repetitions across a sheet that can carry 64, and one of them with louvre slats a
+  pixel and a half apart — and a fetch across a floor or roof at a shallow angle smears that leftover
+  alias into spokes. Every ceiling term is now painted inside the sheet's own limit at the same strength.
+  You give up a little grit on the roof and get back a ceiling with readable bays; each tile keeps its
+  own colour, brightness and place in the room's light, so no room got brighter or darker. The same
+  spoking over open FLOORS is still there and needs its own fix.
+- **The front page shows the game that ships** (#876, PRs #877, #878). All eight screenshots are
+  re-taken off the current build, so the held weapon carries its new face shading and the wall fittings
+  appear where they now stand. Where a frame barely moved the caption says so, with the percentage of
+  pixels that differ from the frame it replaces; the pit-floor caption's contradictory numbers are
+  replaced with what actually changed in that frame.
+
+Not in this release, and known: the spokes over a level's wide open floors are still there — the roof half
+of that defect is fixed here and the floor half is not (#19); a prop standing in its own light pool can
+still read as a hole in its deck (#695, in rework); and an enemy at range can still take on his room's hue
+(#809, in rework). One merged PR in this release changed no pixel: #860's wall fitting gained a check row that fails
+when the pass that places it is switched off, so that fixture can no longer silently stop being dealt.
+
+## [v1.4.30] - 2026-11-19
+
+### Added
+
+- **A room now has a light on its own wall** (#860, PR #869). Every light in the game used to stand on
+  the floor — a post in the middle of a room, or a pendant over the circulation — so everything above
+  shoulder height was bare paint under a dark roof, and ARCHIVE SUBLEVEL and THE STACK arrived as a wide
+  lit deck, a band of unlit wall and a lid. There is now a bolted mounting plate high on a room's own
+  wall with a cove over a warm lens you can see, and the wall under it reads lit instead of bare. It is a
+  drawn object, not a brighter square: the plate, bolts and the spill running down the face are painted at
+  boot like the other wall fixtures, and the light it carries is an ordinary source that states which
+  floor it stands on, so it cannot brighten a column it is not standing in. One per room, two on a wide
+  perimeter, and no lamp that was already dealt was moved to make room for it.
+
+### Changed
+
+- **ABATOIR CORE wakes you facing the storey its own generator raised** (#353, PR #859). That sector's
+  arrival heading used to be a constant pointing down an empty corridor — nothing inside 6 m, the nearest
+  geometry 9.5 m away — while the other three sectors derive theirs and arrive looking at a volume above
+  them. It now derives the same way, and the dealt seat sits with a deck 3.0 m in front of it, so the
+  first frame is a room with a floor you can see the edge of instead of a tunnel. Three of the four
+  sectors now arrive looking up at something. THE STACK's own gap is a separate open issue.
+- **An enemy at the far end of a room stays standing on his deck** (#353, PR #859). His contact
+  darkening is authored in metres, so its footprint on screen shrinks with range; once ABATOIR's arrival
+  fight moved out to 16 m it had collapsed to 6 px of deck against the 8 the eye needs to read a body as
+  a thing with weight, and he looked pasted over the floor. The growth is now sized per caster — a body's
+  own, a crate's kept at the number every prop was measured at — which puts it at 17 px there without
+  smearing a crate past its own width. Within 4 m the frame is byte-identical to what shipped.
+- **The joist grain under a raised deck resolves instead of shimmering** (#353, PR #859). The rib is a
+  0.5 m repetition drawn per pixel rather than fetched from a texture, so where one pixel's own footprint
+  on the ceiling was wider than that period the value it showed was a draw between rib and field, not a
+  sample of either. Such a pixel is now given a share of the rib's own area, which is mean-preserving:
+  every seeded exposure median reproduces to the digit and no lamp pool under the plate moved. It is a
+  correctness fix for a grain sampled below its own period, not a brightness change, and it is not what
+  moved the ceiling-streak row — that row's floor was re-recorded from the shipped build, which is stated
+  in the issue rather than cropped out.
+- **Every upper deck a sector authors now has someone standing on it** (#353, PR #865). The generator
+  puts up to three overlooks per sector and a lamp on every one, but posted a body to the first deck only
+  and returned, so on the shipped dice one lit, reachable upper floor per generated sector had nobody on
+  it. A mezzanine the level lit and furnished is now a fight: ARCHIVE, RING and ABATOIR read 2 of 2
+  authored decks garrisoned. The bodies moved are the ones furthest from your arrival seat, so the frames
+  the game delivers are byte-identical — no geometry, prop, lamp or light changed.
+- **The front-page frames are re-taken off the build that ships** (#844, PR #867). The first-person hand
+  in all eight was the one from before the support hand's fingers stopped painting through the part they
+  hold; the deployed page has drawn the current hand since, so the eight screenshots — same eight sectors,
+  same eight poses — were describing an older game.
+
+### Fixed
+
+- **The check that judges the gun's own pixels actually runs** (#824, PR #870). The comparison that
+  isolates the view model's pixels — a frame with the gun drawn against one without — sat inside an
+  unterminated block comment, so it exited successfully while printing nothing, and both the issue and its
+  comments quoted a baseline that had never been printed. With the comment closed the row runs, and the
+  numbers it reports change what the shading work has to prove: the "steps land outside flat runs"
+  criterion is already true today, so the remaining gap is luminance variation inside those runs. Nothing
+  on screen changed in this release; the first-person rig is still flat, and that work is the next one.
+
+Not in this release, and known: the floors and ceilings still read as a fan of spokes meeting at the
+vanishing point (#19) — the mechanism tried this round, a term for how much of a far pixel's strip the
+texture fetch's own taps stand for, was measured against the shipped look and shipped switched off, since
+on that arm the gate barely opens; the gun in the corner of your view carries no shading of its own yet
+(#824); the wall fitting has no probe that can fail with the placement pass switched off, so its lit band
+is shown in a rendered frame rather than asserted by a gate (#860); and two sectors' arrival roofs still
+read under 0.7x the deck under them (#616, #495).
+
+## [v1.4.29] - 2026-11-18
+
+### Added
+
+- **A crate is one object: it stops your feet, your rounds and a hostile's sight** (#833, PR #855). A
+  crate used to stop only your feet. You could put a round straight through it, an enemy standing behind
+  it could see you through it, and jumping at one dropped you onto the deck underneath. Now a round dies
+  on a crate, a lamp post or a live barrel with sparks on the face it hit, so a hostile taking cover
+  behind a box is genuinely in cover and his sight line stops at that same box; and you can stand on a
+  crate. Jump into one and your feet land on the top surface, and from up there your own view, your
+  muzzle, your contact shadow and how much of you an enemy can see all follow that altitude, so climbing
+  a crate is a way to see over a low wall rather than a way to get stuck. Walk off the edge and you fall,
+  keeping the speed gravity gave you, so the landing kick, the knee bend and fall damage still read the
+  way they did. A barrel that explodes stops being solid for all three at once, in the frame it dies.
+  Pickups, the portal and the orb stay walk-through.
+
+### Changed
+
+- **A prop standing in the pool of light from its own fitting reads as a solid with sides** (#695,
+  PR #861). The worst cases were a lamp whose metal painted 40-48 while the deck under it painted
+  120-123, a barrel at 29 against a deck of 106 and a crate at 28 against 105 — a prop that dark against
+  the floor it is standing on looks burnt into the deck, and you cannot judge where it ends. That matters
+  now that a crate stops your feet and you can stand on one. A prop's paint now scales with how far the
+  light at its own cell stands above the deck value the prop textures are authored for, bounded so a prop
+  cannot become the loudest thing in the room. Props standing outside a light pool are unchanged byte for
+  byte, and this is not another push on overall brightness.
+- **Nothing gets dealt on a staircase** (#834, PRs #856, #858). In ARCHIVE SUBLEVEL a barrel stood at the
+  head of a one-cell flight with no way past it, so that stair was ugly for a second and impassable the
+  next, and a lamp post in ABATOIR CORE was parked where a flight lands. Both now stand one cell clear,
+  off the route, so a flight reads as a flight. The arrival frame in ARCHIVE SUBLEVEL is a shade brighter
+  as a result (spawn mean 73 -> 74): the deck behind the barrel shows. Fixtures were being left there
+  because the deck's own height was written *after* the fixtures were placed, so the check that refuses a
+  climb cell was answered by stale data; it now runs once at the end, after the last height write. The
+  level check no longer just tolerates one fixture per staircase — it names the one that remains with two
+  facts you can disagree with, so a barrel dropped on a tread for no reason can no longer print the same
+  ok as the lamp that *is* that deck's light.
+
+### Fixed
+
+- **A flight you can actually walk** (#834, PR #856). The unusable case above was a blocker, not a
+  cosmetic complaint: on a one-cell flight with a barrel at its head there is no route past it.
+
+Not in this release, and known: enemies still path around a crate rather than climbing onto it; the flat
+light-and-splash ray stays deliberately prop-blind, so a knee-high crate does not darken the room behind
+it; standing on a crate in a one-unit room puts your eye close to the ceiling plane, which renders
+correctly but reads cramped; and one overlook's deck lamp still stands on its landing, because walking
+that one off the deck moves a light source rather than an object and leaves the deck lit by nothing you
+can see — the real answer is a deck-edge or wall fitting.
+
+## [v1.4.28] - 2026-11-17
+
+### Added
+
+- **A body that walks off a deck now falls** (#830, PRs #848, #850). Chase a grunt onto a mezzanine and
+  it used to reach the lip and simply be on the floor below in the next frame — no drop, no landing, no
+  change in how big it is on the way down. It now steps off, gains speed under gravity for about half a
+  second, and lands with a puff of dust, a thud that fades with distance and a small camera kick scaled
+  by how hard it hit; the same rule runs on a corpse knocked off a ledge, and a body chased up a step it
+  cannot walk up still cannot take it. The altitude was never only cosmetic: it is the body's hit volume
+  and its occlusion, so a body standing on the deck above while drawn on the deck below was hittable in
+  the wrong place and depth-tested against the wrong band — which is also how a body could look like it
+  was standing in a room it was not in. Draw height, the contact shadow, a shot's height window and the
+  AI's eye now read the body's own altitude, and a body in mid-drop keeps moving to where it last saw you
+  instead of handing back a search it had already earned.
+
+### Fixed
+
+- **A corner where two walls meet is no longer a dead end** (#832, PR #849). Walk or fall into a 90-degree
+  corner and every direction used to refuse — left, right, forwards, backwards — so the only way back into
+  the fight was restarting the level. Enemies froze in the same place: a body that dropped into a stepped
+  corner stood there doing nothing for the rest of the level, and you won a fight without ever seeing why.
+  A mover that no direction can move is now stepped clear of the faces it is standing inside and walks on.
+  Nothing about what may be crossed changed — the corner stops you exactly as before, it just no longer
+  keeps you — and a body sliding past a lamp in a doorway still slides. Sweeping every open cell of all
+  four sectors for seats where all eight directions are refused: 24 / 20 / 26 / 22 wedges found with the
+  release off, none still wedged with it on, and a body seated in one now moves where before it moved
+  0 m in 240 frames.
+
+### Changed
+
+- **Up close an enemy keeps turning** (#727, PR #846). At arm's length a hostile's chest used to be one
+  flat field of a single colour with nothing on it saying which way he was facing, even though at combat
+  range the same body already reads as one lit flank and one shaded flank — the information existed and
+  then vanished as you closed. The near-side cap that caused it was a shading wave whose brightness was
+  frozen at its combat-range value all the way to the eye; past a projected-size gate the wave now keeps
+  its slope instead of its ceiling, bounded by the existing byte clip so it cannot lift the brightness the
+  room's light is charged against. At the pinned 2 m seat the PR measured the torso interior going from
+  53-87 luma with no run on the body crossing a 2x contrast step to 37-105 luma with one such run per
+  row: a left-to-right ramp instead of one value, so you can tell a chest-on brute from one showing you
+  his back before he moves. At the ordinary combat seat the frame is byte-identical, props and your own
+  weapon never enter the new branch, and no light or exposure value moved.
+- **A brute at arm's length carries a weapon, not a plank** (#847, PR #853). Held out in front of him, his
+  arms and the weapon drew as one dark horizontal slab standing out past his own silhouette — wider than
+  his chest, darker than anything else on him, no break between the two arms and no hint of what he was
+  holding, because the weapon was laid level so every pixel of it landed on one screen row. The cant is
+  turned over rather than shortened, so the same length arrives as a diagonal from shoulder toward far
+  hip; each forearm now wears the suit value the legs already wear and ends in a fist, so each arm has a
+  value of its own and an end the eye can find; and the weapon's four parts are painted by what each one
+  is instead of sharing one number. All of it is authored geometry and per-part paint — no light,
+  threshold or exposure term moved.
+- **A crate standing at a hostile's post stops out-shining him** (#695, PRs #845, #851). In the sectors
+  where a body is dealt standing in front of bright furniture, the box no longer wins the argument. A crate
+  or barrel within about 1.75 m of the square a body spawns on — on his own deck, no nearer to you than he
+  is, and inside sight-line range — now wears the quiet hazard rank the game already pays elsewhere: same
+  amber-on-charcoal hue, same chevron, same black contrast, at 0.74x of the delivered light. It still reads
+  as a hazard band at 10 m; it just stops being the brightest thing in the frame he is standing in front of.
+  Everywhere else the level's props are byte-identical, a sector whose bodies stand clear of the loud paint
+  deals exactly what it dealt before, and the census that found this now names the props it charged instead
+  of printing a bare count. At this head the row reads no prop over the +25 bar on all four sectors.
+- **A dealt lamp, crate or barrel no longer stands on a stair** (#834, PRs #852, #854). 15 of 77 lamps and
+  14 of 108 props used to be dealt onto a tread or a stair landing, and on a one-cell-wide flight that ends
+  the route through a level. Fixture placement now asks the same climb question the spawn seat has always
+  asked, and the pick moves without touching the dice: a sector whose rooms are flat deals exactly the
+  props it dealt before, and fixtures per deal are unchanged. An authored lamp on a stair is counted
+  separately as a decision rather than a defect. Measured at this head: ARCHIVE SUBLEVEL 2 of 25 dealt
+  fixtures on a climb, RING TRANSPORT 1 of 37, ABATOIR CORE 2 of 41, THE STACK 0 dealt plus 4 authored.
+- **At the hip, the fingers stop painting through the part they hold** (#780, PR #807). The support hand's
+  finger prisms ran right across the tube they grip, so a finger covered the very part the player is
+  holding and the thing being held stopped reading as that thing. The tips now stop short of the far side
+  and each finger gives up a millimetre of girth, so the row wraps the near face of the tube and the pump,
+  magazine or cylinder reads between the fingers rather than under them. Re-read at this head: the shotgun
+  puts 965 round-part pixels into its hip paint against a bar of 996; the pistol and the rifle still do
+  not, which is the remaining half of the issue. Aiming down sights is untouched.
+- **The workflow guard is a Node script now** (#840, PR #843). The check that stops a malformed workflow
+  file from silently producing zero jobs was this repository's only Ruby program, and it only ever ran on
+  the CI runner that happens to ship Ruby; `node tools/wfyaml.js --dir .github/workflows` runs on any
+  machine with the repo checked out. Nothing in the game moves.
+
+### Known limitations
+
+- **#834 ships as a rule, not a zero.** Five fixtures per four-sector deal still land on a climb — one
+  blocking barrel in ARCHIVE SUBLEVEL at 22,10 and four lamps — placed by passes that choose a cell outside
+  the prop pool: the arrival sight-line walk-out and the overlook deck bodies. The census prints each one
+  by name and by which pass stood it there, and the issue stays open for that remainder.
+- **The quiet prop rank is keyed to where a body is dealt, not where he walks.** A hostile who crosses the
+  room and stops in front of a different crate carries no rank with him. That issue's opposite tail is also
+  still open: props that sit a whole 25-luma band *under* the deck they stand on read as a dark footprint in
+  the floor rather than a solid with sides — at this head 10 of 15 charged props on THE STACK, worst a lamp
+  at -80.6.
+- **A crate still stops your feet and nothing else** (#833): you cannot climb onto one and your round passes
+  straight through it. That fix is in review on PR #855; it is not in this build.
+- **On the pistol and the rifle the part being gripped is still almost entirely hidden at the hip** — 15 px
+  and 188 px of round-part paint against bars of 840 and 1167 at this head, where the shotgun now reaches
+  965 of 996. That is a question about where the round sits, not about the hand, and #780 stays open for it.
+- Unchanged and still open: the authored mezzanine whose slab draws as a plain ceiling, so an arrival frame
+  can show a floor over you (#421, held for a maintainer decision); ABATOIR CORE's ceiling lead (#495);
+  figures arriving wearing their room's hue (#611); rooms the generator leaves as empty hangars (#631); and
+  what stands behind a pit lip is now drawn, while the far lip's own texture still takes the deck's plane
+  past a crossing (#829).
+- Most sectors a seed deals are still one storey deep. Multi-storey navigation is open design work, not
+  something this release changes.
+
+## [v1.4.27] - 2026-11-16
+
+### Added
+
+- **What stands past a pit lip or a platform edge is now drawn** (#829, PR #831). Looking across a
+  drop, the ray march stopped at the first lip it met, so everything behind it — the far wall, a
+  stair, the enemy you were shooting at — painted as the same void as the pit itself. The march now
+  carries past the lip and keeps solving the columns behind it, so a room with a drop in it stops
+  losing half its geometry the moment you line up with the edge. This is the first half of #829; that
+  issue stays open because the far lip's own texture still takes the deck's plane past a crossing.
+
+### Changed
+
+- **A note in the contributor guide about checking a tree that is not moving under you.** A long gate
+  spawned against a harness being edited mid-run dies on a parse error in no time at all, and the
+  verdict it prints — most rows failing at 0.0 s — reads exactly like a regression in the change under
+  test. The guide now says to run long gates in a tree pinned to a commit nothing is editing, and to
+  read the wall-clock beside each row before believing a sweep in which many rows cost nothing
+  (PR #835).
+
+### Known limitations
+
+- The pixel change this release ships is the pit-lip march above (#829, PR #831), and it is half of
+  #829: what stands behind a lip is drawn, the far lip's own texture still takes the deck's plane.
+  Everything else that moves a picture is still in flight: the authored mezzanine that stands above
+  the ceiling plane, so the arrival frame shows a floor over you (#421, PR #823 in rework); the hip
+  hand whose fists paint out the part they grip (#780, PR #807 in rework); ABATOIR CORE's ceiling lead
+  (#495, PR #794, still on a stale base).
+- Unchanged and still open: a corner where two walls meet can be a dead end you leave only by
+  restarting (#832); a crate stops your feet and nothing else — you cannot jump onto one and a shot
+  passes straight through it (#833); lamps and crates are dealt onto stairs and landings and can block
+  the route through a level (#834); a body dropped off a deck has no altitude state, so its drawn
+  height snaps to the floor below in a single frame (#830); a hazard-striped crate still out-shines a
+  body at 9 m (#695); and up close an enemy is still a flat card (#727).
+- Most sectors a seed deals are still one storey deep. Multi-storey navigation is open design work,
+  not something this release changes.
+
+## [v1.4.26] - 2026-11-13
+
+### Changed
+
+- **The far band now says how far it is looking** (#616, PR #818). Past the draw radius the strip of picture at eye height was one flat colour: a ray that flew 25 metres off the level's edge and one that flew 90 painted the identical pixel, because fog has saturated out there and none of the surface a column crossed survives into the air. The distance each column's ray actually flew was already computed every frame and read by nothing. It is read now — a column that left the grid nearby wears the material it crossed, one that flew a long way washes out — so the horizon stops being a slab bolted across the middle of the frame and starts carrying distance. Measured at the RING TRANSPORT arrival seat, the neighbouring-pixel step in that band goes 0.743 → 1.078 and the whole frame mean moves 62.14 → 62.24, so this is structure appearing where there was none, not a relight.
+- **Paint stops arriving brighter than the wall it is painted on** (#669, PR #821). On ARCHIVE SUBLEVEL the painted wall foot and slab lip landed 12 lumas *above* the wall carrying them — a rust room with a pale teal seam, which reads as a light leak — and that same brightness broke what is geometrically one continuous 229-pixel line into 37 dashes of at most 13 pixels. ABATOIR CORE had the same defect in milder form. Both sectors now author paint that lands *below* the surface it sits on at the same delivered hue: ARCHIVE's mark reads 35.2 against the same 57.6 face and that eye line reads 10 runs with a longest of 178 pixels, so the wall reads as standing on painted concrete rather than glowing at its foot. The value step is one-way down, so no level's average exposure moves; no lamp colour was changed, and THE STACK authors no accent and is byte-for-byte the sector it was.
+
+### Fixed
+
+- **A body standing just past a deck lip is no longer cut in half** (#518, PR #822). The one row where your own deck stopped was painted with the drop face's distance and stored in the depth buffer as nearer than any ray arriving there can get — 3.50 m recorded where an arriving ray reaches 5.28 m — so an enemy at the bottom of a stair or a drone over the pit lost exactly that scan-line at that moment, culled behind a surface that was not there. That row is now yielded to the ground pass, which answers at the honest distance, and the dark seam that makes the edge read as an object still paints. Every step-up lip, every flat level and every drop taller than one quantum is byte-identical: no arithmetic runs where the deck does not already own the row.
+
+### Known limitations
+
+- **#616 is a partial, stated plainly.** The far band is no longer the flattest region of the frame, which is what this buys; its step of 1.078 is still under the 2.0–2.7 the near deck shows, so distance reads as grain rather than as surface. The issue stays open for that gap.
+- **#518 shipped as the depth half of one row.** A staircase seen from across a room still takes its tread tops from an infinite-plane solve — #515's shear is out there — and a pit seen from the deck still paints its far lip with the deck's plane past the crossing, which is the part of #516 this does not reach. Making that row's depth honest is not the same as making its texture honest, and it is not claimed as such.
+- **RING TRANSPORT's amber lip is 20 % dimmer than before.** Its accent already arrived at the concrete's own luma, so the one-way value cap now takes a step off it. Hue is unchanged; whether that reads better at every lip is a call the deployed page can settle.
+- Rooms the generator still leaves open, and figures arriving wearing their room's hue, remain open work (#631, #611) and are untouched here.
+
+## [v1.4.25] - 2026-11-12
+
+### Changed
+
+- **The deck you are standing on now has an edge** (#517, #518, PR #817). Look down at a pit or a staircase from the deck above and the surface under your feet used to simply stop. The drop's own face reached the frame as one borrowed row of pixels and the rows above it were your floor's plane stretched out to the horizon, so the place you can fall off read as a texture suggestion rather than an edge. The floor pass now paints its own last rows before any face you can walk off — a nosing, the mirror of the tread mark that already marks the step you have just climbed. It keys on the edge kind the level already authors, a one-quantum tread or a taller drop, so a flat level runs none of it and a wall, cliff, ramp or ladder grows no mark. Paint only: no geometry, no added light, no column's distance changes, and the sector you were dealt is the sector you get.
+
+### Fixed
+
+- **The front page's brightness figures were reading red as blue** (#394, PR #811). Frames saved as RGBA were decoded with their channels one place round, so every mean luma quoted from such a frame came from a rotated picture — and the checker still printed `ok`, because the captions were quoted back through the same rotation. The pixels were never wrong in a browser; the arithmetic underneath them was, which is exactly the case a gate is for. Red now goes in the red slot and the decoder is tested on bytes it writes itself, whose channel order is known by construction, so a rotation cannot pass quietly again. Every figure on the front page was re-measured from the committed bytes and the eight frames were re-taken off the build that ships, so the page shows today's picture rather than last week's (#797).
+- **Two CI checks stopped judging the game against a picture the game no longer draws** (PRs #816, #813). The arrival-frame brightness gate was reading its ceiling off an anchor last rendered at the end of September; rendered today that anchor is dimmer than the ordinary arrival frames it exists to bound, which left almost no operating room on RING TRANSPORT and let two runs of one tree disagree by a single luma. The band is now derived inside the run that judges it — same level, its own spawn pose, the same seeded rolls — with the old window printed beside it as drift instead of being absorbed into a pass. Separately, the release-artifact step's outstanding-tag exemption is now shown to fail a tag that exists and is wrong (lightweight, mis-pointed, mis-pinned, or stamped by another identity) rather than only being argued to. Neither moves a pixel; both stop the gate burning a branch on a number that was never about the build under test.
+
+### Known limitations
+
+- The deck edge is a **mark, not yet depth**. The straddle row the wall pass lends the drop is still there, so the renderer's own depth census still reports a platform edge as a phantom and #518 stays open for that half. What shipped is the legibility half: the edge is on screen, and the census now names which pass painted the pixel it is complaining about (#815) instead of blaming the floor half in general. The sampled arrival seats have no step down in frame, so the mark shows up where you walk to one, not in the first frame you see.
+- Rooms the generator still leaves completely open, and figures that can arrive wearing their room's hue in the opening sector, are untouched here (#631, #611). Most dealt sectors are still one storey deep; that is open work, not a regression introduced by this build.
+- The per-sector lighting budget question (#505) is parked as a printed debt with a named trigger rather than shipped. Nothing that reads badly today is waiting on it.
+
+## [v1.4.24] - 2026-11-11
+
+### Added
+
+- **The gun is visible at your hip again, and the hand holding it looks like a hand** (#780, PR #803). At the hip — the pose the game is in almost all the time — the support hand was one flat slab that covered the part it was gripping: the pump, magazine or grip was largely not drawn at all. The hand is now four separate fingers laid across the part with the part showing between them, and the fist's own tube gives up some of its width so there is something behind the fingers to see. Aiming down sights is untouched, pixel for pixel. This is the first pass on that defect; the fingers still paint through the part they wrap on one weapon, which stays open as #780.
+
+### Changed
+
+- **Near edges are hard pixels now, not a blur** (#784, PR #804). The raster was enlarged onto your window with a smoothing filter on every tier except the lowest, so every edge the renderer had just paid for was averaged away on the last mile: the floor under your feet was a soft mush while the far half of the room stayed crisp. The last mile is now a stated decision per tier. PERFORMANCE and BALANCED draw small and enlarge with no filter at all — crisp texels end to end — whenever the window is at least twice the raster's height, which is the other half of the rule: below a 2x enlargement nearest leaves texels one screen pixel wide beside ones two wide, which reads as broken rather than as a look. ULTRA keeps the filter, because its buffer is already 62 % of the window and nearest there crawls while you strafe. Softening in the picture is now deliberate: it comes from the CRT curtain and the bloom, not from the upscale. Nothing about resolution or frame cost changed.
+- **Fewer rooms you can see straight through** (#631, PRs #801, #806). Two gaps in the generator closed. A room whose sight line from your seat was too short to be crossed is now asked for its break along the deepest march the room actually offers, so ARCHIVE SUBLEVEL's arrival room gains a break crossing your view instead of a run off to one side of it; and a room big enough to be one open plan that no column rule could stand anything in now gets a one-quantum tread across it — a low step with a real lip, no new wall, nothing deleted. In that change's own census the rooms it left with nothing in them fell from 54 to 29 on ARCHIVE SUBLEVEL, 62 to 31 on RING TRANSPORT and 43 to 13 on ABATOIR CORE. THE STACK's authored layout is byte-for-byte the level it was. No dice are drawn by either pass, so the props, lamps, enemies and spawn seat you were dealt are the ones you already had.
+- **A deck overhead stops out-lighting the ceiling** (#781, PR #810). Look straight up under a raised deck and the surface order used to invert: before this change the surface overhead filled the top of the frame brighter than the floor you are standing on — 95.4 luma against 61.2 on one generated sector, 81.4 against 57.4 on another — so the thing overhead read as the brightest surface in the level. The underside now dims with the angle you read it at, so it darkens where it is a sea of plate overhead and stays as it was where it is the thin horizon sliver an arrival roof is made of. Re-measured on the same two sectors it lands at 58.2 and 56.4 against floors of 61.2 and 57.4, and the arrival roof keeps its value on all four sectors. It adds no light and changes nothing on a flat level.
+
+### Fixed
+
+- **A merged release stops blocking its own publication** (#792, PR #805). The build of a release commit was red on "this commit must carry its own tag", a thing it cannot do because the tag is cut after that build goes green — so the release sat merged, deployed and unpublished. The outstanding tag is now a named, known row instead, and publication proceeds once the merged commit's checks are green. Two earlier releases were affected by this.
+
+### Known limitations
+
+- Rooms that still stand completely open in that same census: 29 on ARCHIVE SUBLEVEL, 31 on RING TRANSPORT and 13 on ABATOIR CORE. The hangar look is much reduced, not gone.
+- On the pistol and the rifle the part being gripped is still almost entirely hidden at the hip — 9 and 188 px of round-part paint against bars of 840 and 1170, where the shotgun now reaches 918 of 997. The hand is no longer the thing covering it there; the round needs to sit nearer the eye than the box carrying it, which is still open as #780.
+- Figures can still arrive wearing their room's hue in the opening sector (#611), and one sector's ceiling lead is still authored rather than derived (#495); both are open and neither was touched here.
+
 ## [v1.4.23] - 2026-11-09
 
 ### Added

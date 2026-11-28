@@ -1,0 +1,6 @@
+# BROKEN: a job that runs on a runner and does nothing, so it passes without doing anything.
+name: fixtures
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest

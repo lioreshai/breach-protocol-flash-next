@@ -1,0 +1,5 @@
+# BROKEN: parses fine and declares nothing that runs, so the PR shows zero checks.
+name: fixtures
+on: push
+permissions:
+  contents: read
