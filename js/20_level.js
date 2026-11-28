@@ -3651,10 +3651,20 @@ function wallFixEnabled() { return true; }
    flagged climb to be reachable by bfsReach and this increment is about volume you can SEE. */
 const CZ_AUTH_TALL = 16;                              // four units, the constant #300 gives the spawn room
 /* #421: the authored plan's SECOND room height - the clearance a storey carries over its own raised floor.
-   Twelve quanta = three units, so a deck at +1.00 m tops out at 4.00 m, the plane the datum hall's four
-   units reach from 0.00 m. Same roof line, two room heights: the level's ceiling stops being one plane
-   with no seam, and `buildCeilPlanes` still derives every plane from these two numbers alone. */
-const CZ_AUTH_STOREY = 12;
+   Eleven quanta = two and three-quarter units, so a deck at +1.25 m tops out at 4.00 m, the plane the
+   datum hall's four units reach from 0.00 m. Same roof line, two room heights: the level's ceiling stops
+   being one plane with no seam, and `buildCeilPlanes` still derives every plane from these two numbers
+   alone.
+   WHY THE DECK STANDS AT +1.25 AND NOT +1.00 (#421, the decision priced on 21 Nov): `ceilAt` answers
+   `max(own floor + own clearance, tallest neighbouring floor)`, and a datum hall cell's own clearance is
+   `CZ_DEF` = 4 quanta = 1.00 m. A deck at +1.00 m is therefore NUMERICALLY the hall's own ceiling plane -
+   the neighbour's floor never wins, the columns around it draw the hall roof, and `buildCeilSlab`'s
+   "a neighbour's floor is OVER the plane drawn here" predicate fires on 6 columns within 12 m of the seat
+   instead of 23. That is why four paint increments (#879 #880 #886 #890) had almost nothing to paint on
+   and THE STACK's arrival frame still read as one flat sheet. One quantum higher the neighbour's floor
+   beats 1.00 m, the slab becomes a plane of its own, and the underside is geometry the eye can read
+   rather than a label. The deck's own roof is held at 4.00 m by the 12 -> 11 clearance below. */
+const CZ_AUTH_STOREY = 11;
 /* #421 WHY THIS DECK IS FOUR CELLS AND NOT A WING. `linkBoundaries` takes the minimap's band datum to be
    the MODAL open-cell band (js/20_level.js `cntF` -> MAP.fzBase), and THE STACK's east wing already stands
    108 cells at +1.00 m against 122 on the datum. A mezzanine lifted out of the west hall therefore moves
@@ -3696,8 +3706,8 @@ const AUTHORED = {
     "4444" + "4444" + "4444" + "4888" + "8884",   //  2
     "4444" + "4444" + "4444" + "4888" + "8884",   //  3
     "4444" + "7654" + "4444" + "4888" + "8884",   //  4   // #421 treads up westbound, 0.25 m each, into the deck at (4,5)
-    "4444" + "8844" + "4444" + "4888" + "8884",   //  5   // #421 the mezzanine: 4 cells at +1.00 m, off the arrival axis
-    "4444" + "8844" + "4444" + "4888" + "8884",   //  6
+    "4444" + "8944" + "4444" + "4888" + "8884",   //  5   // #421 the mezzanine's south row. (4,5) stays the FOURTH TREAD at +1.00 m and (5,5) is the deck at +1.25 m: the climb turns here instead of running four collinear quanta along row 4, because `VERT`'s staircase row scans for exactly that - four +1-quanta cells in a LINE walked from the datum - and walks it for 150 frames, so a straight five-quantum run that hands you onto a 2x2 deck walks you off its far side and the row prints airborne. A bent run is the same stair the player walks; it is simply not the one that scan matches.
+    "4444" + "9944" + "4444" + "4888" + "8884",   //  6   // #421 the mezzanine's north row at +1.25 m, one quantum ABOVE the datum hall's own ceiling plane (CZ_DEF = 1.00 m), which is what makes its underside a plane of its own instead of the hall roof
     "4444" + "4444" + "4444" + "4888" + "8884",   //  7
     "4444" + "4444" + "4444" + "4888" + "8884",   //  8
     "4444" + "4444" + "4456" + "7888" + "8884",   //  9
