@@ -3175,6 +3175,27 @@ function gndBuild(row, isF, absP, pl, tex, sc, fcR, fcG, fcB, fl, amb, dOv) {
         gMXB = gMVoid * xb * (1 - ve) * mm.meanNE[1] / alF[1];
         gMXC = gMVoid * xb * (1 - ve) * mm.meanNE[2] / alF[2];
         gMXE0 = gMVoid * ve * mm.meanEM[0]; gMXE1 = gMVoid * ve * mm.meanEM[1]; gMXE2 = gMVoid * ve * mm.meanEM[2];
+        /* #941 - THE AIR COLOUR THIS COPY NEVER PAID. The three `gMXF` scalars are declared with the rest of
+           the arm (js/40_render.js:3079) and READ by both writes of this arm (`+ fg * gMXF0`, below), and they
+           were never assigned: every armed run carried them at their 0. The row copy assigns its mirror
+           unconditionally - `xSr = vr * fcR` - and its write is `+ fg * xSr`, so the fog-weighted AIR colour
+           exists in one copy of this body and not the other, which is exactly the invariant AGENTS.md prices
+           ("the ground pixel body exists twice"). Why that is a hole rather than a dimming: this copy weights
+           its terms by `1 - vV` (the shipped fill, and `vV` is the VOIDK share, which reaches 1 at
+           FARB * 1.6 = 35.2 m) and by `1 - fog(crossing)`, and out where the void share saturates the fog has
+           saturated too (~0.99). Past that radius every term this copy carries is multiplied by ~0 and the one
+           that should survive is the missing one, so a ray that left the level past 35 m delivers rgb 3,0,0 -
+           no surface, no light - while the row copy answers the same ray with the air colour at ~21 lumas.
+           The queued columns come in runs of one cell crossing, so the shortfall is a step per cell along the
+           far edge of a storey: the torn black staircase #941 reports at its shipped seats (477 px under luma
+           1.5 in the top 45 % at ABATOIR CORE `seed 63` seat 9.50,10.50, and 277 at THE STACK `seed 60` seat
+           1.50,2.50, both on the byte this fix replaces). Attributed by arm, not by argument: `GNDFB`,
+           `FARVOID` and `FARCROSS` each take the census to 0 while `GNDTX` and `CGW` leave it at 477, and
+           `castGround` alone on a cleared buffer produces the band while `castWalls` alone produces none.
+           Restoring the assignment costs no test and no constant: the arm is already gated, `gMVoid` and the
+           fog colour are already in scope, and inside FARB*1.6 the share `fg` there is multiplied by is
+           already what the row copy pays - so the pixels that move are the ones that were answering nothing. */
+        gMXF0 = gMVoid * fcR; gMXF1 = gMVoid * fcG; gMXF2 = gMVoid * fcB;
         /* #616, SECOND COPY of the distance term: the mean keeps the fog weight, the deviation takes the
            distance share (AGENTS.md: change one copy, change the other). xPr * alF cancels, so the mean is
            a run constant. */
