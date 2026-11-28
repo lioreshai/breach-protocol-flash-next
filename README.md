@@ -292,7 +292,7 @@ The same pose the replaced row posed - (19.5, 14.5), heading **atan2(2, 1) = 1.1
 one of them read back off the load that drew this frame - and on the same deal those bytes sat on, so what those bytes
 left as a pier is here a brick run with its own top edge lit (#669) and a crate's flank standing mid-frame. Frame mean
 **65.01**; **0 of 763 rows average below luminance 24**, and nothing at all under the tool's softer 34 bar, where the
-frame these replace counts nothing either. This frame is **0.00** on the frame it
+frame these replace counts nothing either. This frame is **+0.06** on the frame it
 replaces - the two agree to two decimals, and **no pixel of it** clears the kept-pixel threshold - over the same coordinates and ARCHIVE's 4083630493 deal, the deal those bytes
 already carried. What
 crosses the middle of the frame is the underside of a floor above this one - the dark band with lit deck under it -
