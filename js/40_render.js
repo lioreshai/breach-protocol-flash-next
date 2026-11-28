@@ -871,6 +871,26 @@ const SLAB_PAY = (() => {
    `SLABGF` is the A/B: 0 puts the hard-edged point sample back in BOTH copies. `DEV.set('slabgrain', 0)`
    is the same A/B in a running page. Both copies of the pixel body carry the fade, as AGENTS.md charges. */
 let SLABUND = 1;
+/* #19, THE UNDERSIDE'S OWN FETCH. `SLABUND` puts CEILS.SOFFIT's colour OVER the ceiling fetch, and until
+   now it did so with the fetch this plane had before #19 started: ONE bilinear along the axis the ROW
+   walks, and nothing along the other. Every filter this issue built - the axial pair (GNDAX), the
+   magnified quartet (GNDNB), the coarse share the walk and the wash hand up the chain - ran on the roof's
+   colour and was then thrown away by that assignment, on exactly the pixels where a storey is overhead.
+   Which is why twenty takes of fetch knobs read FLAT on the ceiling streak while the one arm that removes
+   the underside term moves 8-14 points of it: the knob was on a fetch whose answer this plane does not
+   keep. A texel of the underside's sheet read by ONE point on a plane seen edge-on is magnified into a
+   wedge narrowing at the vanishing point - the fan, on the underside.
+   So the underside now takes the SAME two footprint filters the roof takes, at the SAME offsets the
+   ceiling body just computed for this pixel: the symmetric pair along the long axis where the footprint
+   is longer than a texel (`axOn`), and the completing quartet where it is shorter (`nbOn`, take nine).
+   The offsets transfer unchanged because `soffAt` deliberately picks the soffit level whose TEXEL GRID
+   equals the ceiling level this row solved - one texel here is one texel there. It is mean-preserving by
+   the same argument as the roof's pair: a convex average of taps about the point, so no band, bias or
+   lamp moves, and a row whose footprint is one texel or less along both axes (every flat level, every
+   near deck) keeps the byte it had. `SLABUND = 0` is still the A/B back to the pre-#421 picture; the
+   underside's OWN fetch A/B is `SOFFAX = 0` in a running page, which keeps the sheet and puts the point
+   sample back. Both copies of the ground pixel body carry it, as AGENTS.md charges. */
+let SOFFAX = 1;
 const visAt = d => 1 / (1 + d * d * 0.010) + 0.06 * Math.exp(-d * 0.06);
 const fogAt = d => clamp(1 - visAt(d), 0, 1);
 const clampi = v => v < 0 ? 0 : v > 255 ? 255 : v | 0;
@@ -2927,6 +2947,29 @@ function castGround(flash, fcR, fcG, fcB) {
         cr = (s0 & 255) + ((s1 & 255) - (s0 & 255)) * sf;
         cg = (s0 >> 8 & 255) + ((s1 >> 8 & 255) - (s0 >> 8 & 255)) * sf;
         cb = (s0 >> 16 & 255) + ((s1 >> 16 & 255) - (s0 >> 16 & 255)) * sf;
+        /* #19, ROW COPY: the underside's sheet read over the strip THIS pixel covers rather than at one
+           point - the pair on a minified footprint, the quartet on a magnified one, both from the same
+           row constants the roof's fetch uses and at the same offsets (see SOFFAX at its definition for
+           why the texel offsets transfer between the two sheets, and why this is a filter and not a
+           second blur). Cost is two loads on an underside pixel that is undersampled in the first place,
+           and nothing at all on a flat level, where `und` is zero for every pixel. Second copy:
+           groundPixel. */
+        if (SOFFAX) {
+          if (axOn) {
+            const sA = sTd[((ty - oyi) & sMh) * sW + ((tx - oxi) & sWm)];
+            const sB = sTd[((ty + oyi) & sMh) * sW + ((tx + oxi) & sWm)];
+            cr = cr * 0.5 + (sA & 255) * 0.25 + (sB & 255) * 0.25;
+            cg = cg * 0.5 + (sA >> 8 & 255) * 0.25 + (sB >> 8 & 255) * 0.25;
+            cb = cb * 0.5 + (sA >> 16 & 255) * 0.25 + (sB >> 16 & 255) * 0.25;
+          } else if (nbOn) {
+            const s2 = ftV ? sTd[ty * sW + ((tx + 1) & sWm)] : sTd[((ty + 1) & sMh) * sW + tx];
+            const s3 = sTd[((ty + 1) & sMh) * sW + ((tx + 1) & sWm)];
+            const sg = ftV ? ufx : ufy;
+            cr += (((s2 & 255) - (s0 & 255)) + (((s3 & 255) - (s2 & 255)) - ((s1 & 255) - (s0 & 255))) * sf) * sg;
+            cg += (((s2 >> 8 & 255) - (s0 >> 8 & 255)) + (((s3 >> 8 & 255) - (s2 >> 8 & 255)) - ((s1 >> 8 & 255) - (s0 >> 8 & 255))) * sf) * sg;
+            cb += (((s2 >> 16 & 255) - (s0 >> 16 & 255)) + (((s3 >> 16 & 255) - (s2 >> 16 & 255)) - ((s1 >> 16 & 255) - (s0 >> 16 & 255))) * sf) * sg;
+          }
+        }
       }
       if (cgW) { cr = cr * gW0 + cgR * cgW; cg = cg * gW0 + cgG * cgW; cb = cb * gW0 + cgB * cgW; }
       /* #421, ROW COPY: the plane this pixel lies on is a FLOOR seen from below - a neighbour column's
@@ -3874,13 +3917,33 @@ function groundPixel(x0, x1, pl, row, isF, absP, tex, sc, fcR, fcG, fcB, fl, amb
      with the material's mean and never reaches here, so the far field of a stepped level stays the wash in
      both copies (#19) and only the near and mid field is re-materialised. */
   if (sTd !== null && csk !== null && inMap && csk[cIdx]) {
+    const sV = Math.abs(gMCys) >= Math.abs(gMCxs) ? 1 : 0;   // this pixel's OWN short axis, second copy
     const s0 = sTd[ty * sW + tx];
-    const s1 = Math.abs(gMCys) >= Math.abs(gMCxs)
-      ? sTd[((ty + 1) & sMh) * sW + tx] : sTd[ty * sW + ((tx + 1) & sWm)];
-    const sf = Math.abs(gMCys) >= Math.abs(gMCxs) ? ufy : ufx;
+    const s1 = sV ? sTd[((ty + 1) & sMh) * sW + tx] : sTd[ty * sW + ((tx + 1) & sWm)];
+    const sf = sV ? ufy : ufx;
     cr = (s0 & 255) + ((s1 & 255) - (s0 & 255)) * sf;
     cg = (s0 >> 8 & 255) + ((s1 >> 8 & 255) - (s0 >> 8 & 255)) * sf;
     cb = (s0 >> 16 & 255) + ((s1 >> 16 & 255) - (s0 >> 16 & 255)) * sf;
+    /* #19, DEFERRED COPY (AGENTS.md: change one copy and you have changed the other): the same pair or
+       quartet as the row loop's, from THIS pixel's own footprint - which is the whole reason this pixel
+       is here, and the reason the deferred underside of a stepped level can no longer disagree with the
+       raster above it. Second copy. */
+    if (SOFFAX) {
+      if (axOn) {
+        const sA = sTd[((ty - oy) & sMh) * sW + ((tx - ox) & sWm)];
+        const sB = sTd[((ty + oy) & sMh) * sW + ((tx + ox) & sWm)];
+        cr = cr * 0.5 + (sA & 255) * 0.25 + (sB & 255) * 0.25;
+        cg = cg * 0.5 + (sA >> 8 & 255) * 0.25 + (sB >> 8 & 255) * 0.25;
+        cb = cb * 0.5 + (sA >> 16 & 255) * 0.25 + (sB >> 16 & 255) * 0.25;
+      } else if (GNDNB && GNDAX) {
+        const s2 = sV ? sTd[ty * sW + ((tx + 1) & sWm)] : sTd[((ty + 1) & sMh) * sW + tx];
+        const s3 = sTd[((ty + 1) & sMh) * sW + ((tx + 1) & sWm)];
+        const sg = sV ? ufx : ufy;
+        cr += (((s2 & 255) - (s0 & 255)) + (((s3 & 255) - (s2 & 255)) - ((s1 & 255) - (s0 & 255))) * sf) * sg;
+        cg += (((s2 >> 8 & 255) - (s0 >> 8 & 255)) + (((s3 >> 8 & 255) - (s2 >> 8 & 255)) - ((s1 >> 8 & 255) - (s0 >> 8 & 255))) * sf) * sg;
+        cb += (((s2 >> 16 & 255) - (s0 >> 16 & 255)) + (((s3 >> 16 & 255) - (s2 >> 16 & 255)) - ((s1 >> 16 & 255) - (s0 >> 16 & 255))) * sf) * sg;
+      }
+    }
   }
   /* #19 take sixteen, DEFERRED COPY of the ceiling wash - same albedo mix, same place in the body (after
      the emissive return, before the light), second copy (AGENTS.md). */
